@@ -1,4 +1,4 @@
-﻿/*
+/*
  * SecurePulse – Declarative Jenkins Pipeline
  * Stage 3: CI/CD with Jenkins
  *
