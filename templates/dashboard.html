@@ -1,0 +1,189 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecurePulse &mdash; Dashboard</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <!-- ── Navigation ─────────────────────────────────────────────── -->
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="brand-icon">&#9889;</span>
+      <span class="brand-name">SecurePulse</span>
+    </div>
+    <div class="nav-subtitle">Cloud-Based DevSecOps &amp; Product Intelligence Platform</div>
+    <div class="nav-meta">
+      <span id="last-updated">Loading&hellip;</span>
+      <button class="refresh-btn" onclick="loadDashboard()">&#8635; Refresh</button>
+    </div>
+  </nav>
+
+  <main class="container">
+
+    <!-- ── Section: Product Metrics ──────────────────────────────── -->
+    <h2 class="section-title">Product Metrics</h2>
+    <div class="grid">
+
+      <!-- Application Health -->
+      <div class="card" id="card-health">
+        <div class="card-header">
+          <span class="card-icon">&#10084;&#65039;</span>
+          <span class="card-title">Application Health</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-status" id="health-status">--</p>
+          <p class="metric-sub"   id="health-details">--</p>
+        </div>
+      </div>
+
+      <!-- Active Users -->
+      <div class="card" id="card-users">
+        <div class="card-header">
+          <span class="card-icon">&#128100;</span>
+          <span class="card-title">Active Users</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-value" id="users-value">--</p>
+          <p class="metric-trend" id="users-trend">--</p>
+        </div>
+      </div>
+
+      <!-- Conversion Rate -->
+      <div class="card" id="card-conversion">
+        <div class="card-header">
+          <span class="card-icon">&#128200;</span>
+          <span class="card-title">Conversion Rate</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-value" id="conversion-value">--</p>
+          <p class="metric-trend" id="conversion-trend">--</p>
+        </div>
+      </div>
+
+      <!-- Feature Usage -->
+      <div class="card card-wide" id="card-features">
+        <div class="card-header">
+          <span class="card-icon">&#128187;</span>
+          <span class="card-title">Feature Usage</span>
+        </div>
+        <div class="card-body">
+          <ul class="feature-list" id="feature-list">
+            <li>Loading&hellip;</li>
+          </ul>
+        </div>
+      </div>
+
+    </div><!-- /grid -->
+
+    <!-- ── Section: DevOps Metrics ───────────────────────────────── -->
+    <h2 class="section-title">DevOps Metrics</h2>
+    <div class="grid">
+
+      <!-- Deployment Success Rate -->
+      <div class="card" id="card-deploy">
+        <div class="card-header">
+          <span class="card-icon">&#128640;</span>
+          <span class="card-title">Deployment Success Rate</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-value" id="deploy-value">--</p>
+          <p class="metric-sub"   id="deploy-sub">--</p>
+        </div>
+      </div>
+
+      <!-- Uptime -->
+      <div class="card" id="card-uptime">
+        <div class="card-header">
+          <span class="card-icon">&#9201;&#65039;</span>
+          <span class="card-title">Uptime</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-value" id="uptime-value">--</p>
+          <p class="metric-sub"   id="uptime-period">--</p>
+        </div>
+      </div>
+
+      <!-- Response Time -->
+      <div class="card" id="card-response">
+        <div class="card-header">
+          <span class="card-icon">&#9889;</span>
+          <span class="card-title">Response Time</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-value" id="response-value">--</p>
+          <p class="metric-sub"   id="response-sub">--</p>
+        </div>
+      </div>
+
+      <!-- Error Rate -->
+      <div class="card" id="card-error">
+        <div class="card-header">
+          <span class="card-icon">&#9888;&#65039;</span>
+          <span class="card-title">Error Rate</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-value" id="error-value">--</p>
+          <p class="metric-trend" id="error-trend">--</p>
+        </div>
+      </div>
+
+    </div><!-- /grid -->
+
+    <!-- ── Section: Security & Infrastructure ────────────────────── -->
+    <h2 class="section-title">Security &amp; Infrastructure</h2>
+    <div class="grid">
+
+      <!-- Security Vulnerabilities -->
+      <div class="card card-wide" id="card-security">
+        <div class="card-header">
+          <span class="card-icon">&#128274;</span>
+          <span class="card-title">Security Vulnerabilities</span>
+        </div>
+        <div class="card-body vuln-grid">
+          <div class="vuln-badge critical">
+            <span class="vuln-count" id="vuln-critical">--</span>
+            <span class="vuln-label">Critical</span>
+          </div>
+          <div class="vuln-badge high">
+            <span class="vuln-count" id="vuln-high">--</span>
+            <span class="vuln-label">High</span>
+          </div>
+          <div class="vuln-badge medium">
+            <span class="vuln-count" id="vuln-medium">--</span>
+            <span class="vuln-label">Medium</span>
+          </div>
+          <div class="vuln-badge low">
+            <span class="vuln-count" id="vuln-low">--</span>
+            <span class="vuln-label">Low</span>
+          </div>
+        </div>
+        <p class="metric-sub card-footer-text" id="vuln-scan">--</p>
+      </div>
+
+      <!-- Infrastructure Status -->
+      <div class="card card-wide" id="card-infra">
+        <div class="card-header">
+          <span class="card-icon">&#127970;</span>
+          <span class="card-title">Infrastructure Status</span>
+        </div>
+        <div class="card-body">
+          <ul class="infra-list" id="infra-list">
+            <li>Loading&hellip;</li>
+          </ul>
+        </div>
+      </div>
+
+    </div><!-- /grid -->
+
+  </main>
+
+  <footer class="footer">
+    <p>SecurePulse &copy; 2026 &mdash; Stage 1: Local Development</p>
+  </footer>
+
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

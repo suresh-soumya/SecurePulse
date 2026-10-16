@@ -1,0 +1,39 @@
+﻿# ── Virtual environment ───────────────────────────────────────────
+# Never copy the local venv – pip installs fresh inside the image.
+venv/
+.venv/
+env/
+
+# ── Python cache ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ── Pytest / coverage ─────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# ── Environment / secrets ─────────────────────────────────────────
+.env
+.env.*
+*.env
+
+# ── Git ───────────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── IDE / OS ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Logs ──────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Docs (not needed at runtime) ─────────────────────────────────
+README.md
