@@ -123,6 +123,61 @@ pipeline {
             }
         }
 
+
+        // ── 5. Deploy SecurePulse ──────────────────────────────────────────
+        // Replaces only the securepulse-app container; all other containers
+        // (e.g. PCARP) are left completely untouched.
+        stage("Deploy SecurePulse") {
+            steps {
+                echo "==> Deploying ${IMAGE_NAME}:${IMAGE_TAG} as securepulse-app..."
+                sh """
+                    # ── Stop & remove the existing securepulse-app container (if any) ──
+                    # We scope the filter to the exact container name so that no other
+                    # container (PCARP or otherwise) is ever touched.
+                    if docker ps -a --filter "name=^securepulse-app\$" --format '{{.Names}}' | grep -q '^securepulse-app\$'; then
+                        echo "Stopping existing securepulse-app container..."
+                        docker stop securepulse-app
+                        echo "Removing existing securepulse-app container..."
+                        docker rm   securepulse-app
+                    else
+                        echo "No existing securepulse-app container found – fresh deploy."
+                    fi
+
+                    # ── Start the newly built image ────────────────────────────────────
+                    docker run -d \
+                        --name securepulse-app \
+                        --restart unless-stopped \
+                        -p 5001:5000 \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
+
+                    echo "Container started. Waiting 5 s for the app to initialise..."
+                    sleep 5
+
+                    # ── Verify the container is actually running ────────────────────────
+                    STATUS=\$(docker inspect -f '{{.State.Status}}' securepulse-app 2>/dev/null || echo "not_found")
+                    echo "Container status: \${STATUS}"
+
+                    if [ "\${STATUS}" != "running" ]; then
+                        echo "ERROR: securepulse-app is NOT running (status=\${STATUS})."
+                        echo "Container logs:"
+                        docker logs securepulse-app || true
+                        exit 1
+                    fi
+
+                    echo "Deployment VERIFIED – securepulse-app is running on host port 5001."
+                    docker ps --filter "name=^securepulse-app\$"
+                """
+            }
+            post {
+                success {
+                    echo "Deploy stage PASSED – securepulse-app is live on port 5001."
+                }
+                failure {
+                    echo "Deploy stage FAILED – securepulse-app did not start correctly. Review logs above."
+                }
+            }
+        }
+
     }   // end stages
 
     // ── Post (global) ──────────────────────────────────────────────────────
