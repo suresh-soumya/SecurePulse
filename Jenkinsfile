@@ -4,12 +4,21 @@
  *
  * Agent requirements
  * ------------------
- *   • Python 3  (python3 / python both tried; see Install Dependencies stage)
- *   • pip       (bundled with Python 3.4+)
- *   • Docker    (daemon must be running; Jenkins user needs docker group access)
+ *   • Python 3    (python3 / python both tried; see Install Dependencies stage)
+ *   • pip         (bundled with Python 3.4+)
+ *   • Docker      (daemon must be running; Jenkins user needs docker group access)
+ *   • pip-audit   (installed into the build venv during Security Scan stage)
+ *   • Trivy       (downloaded to .trivy-bin/ in the workspace if not on PATH;
+ *                  no changes to the Jenkins container or host)
  *
  * No credentials or secrets are hardcoded.
  * The Docker image is built locally only – no push to any registry.
+ *
+ * Security Scan blocking policy
+ * ------------------------------
+ *   pip-audit : any vulnerability → pipeline fails
+ *   Trivy     : HIGH or CRITICAL severity in the image → pipeline fails
+ *               (informational LOW/MEDIUM findings are printed but non-blocking)
  */
 
 pipeline {
@@ -123,8 +132,105 @@ pipeline {
             }
         }
 
+        // ── 5. Security Scan ───────────────────────────────────────────────
+        // Runs AFTER the image is built so Trivy can scan the real image.
+        // Both sub-scans must pass before deployment is allowed.
+        stage("Security Scan") {
+            steps {
+                echo "==> Running security scans..."
+                sh """
+                    # ── pip-audit: dependency vulnerability scan ───────────────────────
+                    echo "--- [1/2] pip-audit: scanning requirements.txt ---"
 
-        // ── 5. Deploy SecurePulse ──────────────────────────────────────────
+                    # pip-audit is installed into the existing build venv so we never
+                    # touch the Jenkins container or any system-level package manager.
+                    ${VENV_DIR}/bin/pip install pip-audit --quiet
+
+                    # Scan requirements.txt directly (fastest, no env resolution needed).
+                    # Any vulnerability causes a non-zero exit → stage fails immediately.
+                    ${VENV_DIR}/bin/pip-audit -r requirements.txt --progress-spinner off
+                    echo "pip-audit: PASSED – no known vulnerabilities in requirements.txt"
+
+                    # ── Trivy: container image vulnerability scan ──────────────────────
+                    echo "--- [2/2] Trivy: scanning ${IMAGE_NAME}:${IMAGE_TAG} ---"
+
+                    # Prefer a system-installed trivy; fall back to a workspace-local
+                    # binary so the Jenkins container itself is never modified.
+                    TRIVY_BIN=\$(command -v trivy 2>/dev/null || echo "")
+
+                    if [ -z "\$TRIVY_BIN" ]; then
+                        echo "trivy not found on PATH – downloading to .trivy-bin/ ..."
+                        mkdir -p .trivy-bin
+
+                        # Fetch the latest stable version tag from GitHub API
+                        TRIVY_VERSION=\$(curl -sSfL \
+                            "https://api.github.com/repos/aquasecurity/trivy/releases/latest" \
+                            | grep '"tag_name"' \
+                            | sed 's/.*"v\\([^"]*\\)".*/\\1/')
+                        # Guard: fail clearly if the version string could not be resolved
+                        if [ -z "\${TRIVY_VERSION}" ]; then
+                            echo "ERROR: Could not resolve latest Trivy version from GitHub API."
+                            echo "       Check network access and that the API response contains 'tag_name'."
+                            exit 1
+                        fi
+                        echo "Downloading Trivy v\${TRIVY_VERSION}..."
+
+                        curl -sSfL \
+                            "https://github.com/aquasecurity/trivy/releases/download/v\${TRIVY_VERSION}/trivy_\${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+                            -o .trivy-bin/trivy.tar.gz
+                        tar -xzf .trivy-bin/trivy.tar.gz -C .trivy-bin trivy
+                        chmod +x .trivy-bin/trivy
+                        TRIVY_BIN=".trivy-bin/trivy"
+                        echo "Trivy downloaded: \$(\$TRIVY_BIN --version)"
+                    else
+                        echo "Using system Trivy: \$(\$TRIVY_BIN --version)"
+                    fi
+
+                    # Cache the vulnerability DB inside the workspace (not the container).
+                    export TRIVY_CACHE_DIR="\${WORKSPACE}/.trivy-cache"
+                    mkdir -p "\${TRIVY_CACHE_DIR}"
+
+                    # Scan the locally built image.
+                    # --exit-code 1  → non-zero exit when HIGH or CRITICAL are found.
+                    # --severity     → only block on HIGH and CRITICAL.
+                    # --no-progress  → cleaner Jenkins log output.
+                    # The full table (including LOW/MEDIUM) is always printed first.
+                    echo "Trivy informational scan (all severities):"
+                    \$TRIVY_BIN image \
+                        --cache-dir "\${TRIVY_CACHE_DIR}" \
+                        --no-progress \
+                        --exit-code 0 \
+                        --severity LOW,MEDIUM,HIGH,CRITICAL \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
+
+                    echo "Trivy blocking scan (HIGH + CRITICAL only):"
+                    \$TRIVY_BIN image \
+                        --cache-dir "\${TRIVY_CACHE_DIR}" \
+                        --no-progress \
+                        --exit-code 1 \
+                        --severity HIGH,CRITICAL \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
+
+                    echo "Trivy: PASSED – no HIGH or CRITICAL vulnerabilities found in ${IMAGE_NAME}:${IMAGE_TAG}"
+                """
+            }
+            post {
+                success {
+                    echo "Security Scan PASSED – pip-audit and Trivy found no blocking vulnerabilities."
+                }
+                failure {
+                    echo "Security Scan FAILED – vulnerabilities detected. Deployment is blocked. Review scan output above."
+                }
+                always {
+                    // Clean up the downloaded Trivy binary to keep the workspace tidy.
+                    // The DB cache (.trivy-cache/) is intentionally kept to speed up
+                    // subsequent builds (Trivy will only download deltas).
+                    sh "rm -f .trivy-bin/trivy .trivy-bin/trivy.tar.gz || true"
+                }
+            }
+        }
+
+        // ── 6. Deploy SecurePulse ──────────────────────────────────────────
         // Replaces only the securepulse-app container; all other containers
         // (e.g. PCARP) are left completely untouched.
         stage("Deploy SecurePulse") {
