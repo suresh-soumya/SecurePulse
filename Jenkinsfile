@@ -176,6 +176,11 @@ pipeline {
                         echo "Downloading Trivy v\${TRIVY_VERSION}..."
 
                         curl -sSfL \
+                            --retry 5 \
+                            --retry-all-errors \
+                            --retry-delay 2 \
+                            --connect-timeout 20 \
+                            --max-time 300 \
                             "https://github.com/aquasecurity/trivy/releases/download/v\${TRIVY_VERSION}/trivy_\${TRIVY_VERSION}_Linux-64bit.tar.gz" \
                             -o .trivy-bin/trivy.tar.gz
                         tar -xzf .trivy-bin/trivy.tar.gz -C .trivy-bin trivy
