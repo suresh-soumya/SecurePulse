@@ -1,4 +1,3 @@
-
 /*
  * SecurePulse – Declarative Jenkins Pipeline
  * Stage 3: CI/CD with Jenkins
@@ -22,18 +21,14 @@
  */
 
 pipeline {
-
-    // Agent
     agent any
 
-    // Environment
     environment {
         IMAGE_NAME = "securepulse"
         IMAGE_TAG  = "latest"
         VENV_DIR   = ".jenkins-venv"
     }
 
-    // Options
     options {
         buildDiscarder(logRotator(numToKeepStr: "10", artifactNumToKeepStr: "3"))
         timeout(time: 20, unit: "MINUTES")
@@ -41,9 +36,7 @@ pipeline {
         timestamps()
     }
 
-    // Stages
     stages {
-
         stage("Checkout") {
             steps {
                 echo "==> Checking out source code..."
@@ -57,6 +50,7 @@ pipeline {
             steps {
                 echo "==> Creating virtual environment and installing dependencies..."
                 sh """
+                    set -eu
                     PYTHON=\$(command -v python3 || command -v python)
                     echo "Using Python: \$PYTHON"
                     \$PYTHON --version
@@ -75,6 +69,7 @@ pipeline {
             steps {
                 echo "==> Running pytest suite..."
                 sh """
+                    set -eu
                     ${VENV_DIR}/bin/python -m pytest tests/ -v \\
                         --tb=short \\
                         --junit-xml=test-results.xml
@@ -97,6 +92,7 @@ pipeline {
             steps {
                 echo "==> Building Docker image ${IMAGE_NAME}:${IMAGE_TAG}..."
                 sh """
+                    set -eu
                     docker build \\
                         --no-cache \\
                         -t ${IMAGE_NAME}:${IMAGE_TAG} \\
@@ -130,14 +126,15 @@ pipeline {
                     docker pull aquasec/trivy:0.76.0
                     docker volume create securepulse-trivy-cache >/dev/null
 
-                    # Export the just-built image to the Jenkins workspace. The trap
-                    # removes the archive even if a scan fails.
+                    # Export the just-built image to the Jenkins workspace.
+                    # The trap removes the archive even if either scan fails.
                     ARCHIVE_PATH="\${WORKSPACE}/.securepulse-image.tar"
                     trap 'rm -f "\$ARCHIVE_PATH"' EXIT
                     docker save --output "\$ARCHIVE_PATH" ${IMAGE_NAME}:${IMAGE_TAG}
 
-                    # The archive is exposed read-only to Trivy from the existing
-                    # Jenkins home volume. The scanner cannot modify the workspace.
+                    # Read the archive from the existing Jenkins home volume.
+                    # This assumes the standard Jenkins job workspace path:
+                    # /var/jenkins_home/workspace/SecurePulse_CI-CD
                     echo "Trivy informational scan (all severities):"
                     docker run --rm \\
                         --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \\
@@ -181,12 +178,15 @@ pipeline {
 
                     # Select only the exact securepulse-app container name.
                     if docker ps -a --filter "name=^securepulse-app\$" --format '{{.Names}}' | grep -q '^securepulse-app\$'; then
-                        echo "Stopping existing securepulse-app container..."
-                        docker stop securepulse-app
+                        STATUS=\$(docker inspect -f '{{.State.Status}}' securepulse-app)
+                        if [ "\$STATUS" = "running" ]; then
+                            echo "Stopping existing securepulse-app container..."
+                            docker stop securepulse-app
+                        fi
                         echo "Removing existing securepulse-app container..."
                         docker rm securepulse-app
                     else
-                        echo "No existing securepulse-app container found – fresh deploy."
+                        echo "No existing securepulse-app container found - fresh deploy."
                     fi
 
                     docker run -d \\
@@ -202,6 +202,7 @@ pipeline {
                     echo "Container status: \$STATUS"
                     if [ "\$STATUS" != "running" ]; then
                         echo "ERROR: securepulse-app is NOT running (status=\$STATUS)."
+                        echo "Container logs:"
                         docker logs securepulse-app || true
                         exit 1
                     fi
