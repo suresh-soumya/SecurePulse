@@ -7,6 +7,10 @@
 # python:3.11-slim keeps the image small while matching the dev env.
 FROM python:3.11-slim
 
+# Apply available security updates to Debian base packages
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 # ── Metadata ──────────────────────────────────────────────────────
 LABEL maintainer="SecurePulse Project"
 LABEL description="SecurePulse – Cloud-Based DevSecOps and Product Intelligence Platform"

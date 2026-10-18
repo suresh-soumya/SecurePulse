@@ -37,3 +37,13 @@ logs/
 
 # ── Docs (not needed at runtime) ─────────────────────────────────
 README.md
+
+
+# Jenkins CI temporary files
+.jenkins-venv/
+.securepulse-image.tar
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
