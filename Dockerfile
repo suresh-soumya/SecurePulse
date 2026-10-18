@@ -31,7 +31,12 @@ WORKDIR /app
 # Copy requirements first so Docker layer-caches the install step.
 # The local venv is excluded via .dockerignore.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && python -m pip install --no-cache-dir --upgrade "urllib3>=2.8.0" "msgpack>=1.2.1" \
+    && python -m pip install --no-cache-dir -r requirements.txt
+
 
 # ── Copy application source ───────────────────────────────────────
 COPY . .

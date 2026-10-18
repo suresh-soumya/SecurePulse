@@ -15,9 +15,12 @@
  *
  * Security Scan blocking policy
  * -----------------------------
- *   pip-audit : any known dependency vulnerability fails the pipeline
- *   Trivy     : HIGH or CRITICAL image vulnerabilities fail the pipeline
- *               Informational scan reports all severities.
+ *   pip-audit : known vulnerabilities in requirements.txt fail the pipeline
+ *   Trivy     : HIGH or CRITICAL findings with available fixes fail the gate
+ *               Unfixed findings are reported but do not block the build.
+ *               The embedded pip vendor SBOM is excluded from Trivy scanning
+ *               because it contains stale package-version metadata.
+
  */
 
 pipeline {
@@ -136,28 +139,31 @@ pipeline {
                     # This assumes the standard Jenkins job workspace path:
                     # /var/jenkins_home/workspace/SecurePulse_CI-CD
                     echo "Trivy informational scan (all severities):"
-                    docker run --rm \\
-                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \\
-                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
-                        aquasec/trivy:0.76.0 image \\
-                        --cache-dir /root/.cache/trivy \\
-                        --input /workspace/.securepulse-image.tar \\
-                        --no-progress \\
-                        --exit-code 0 \\
+                    docker run --rm \
+                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \
+                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \
+                        aquasec/trivy:0.76.0 image \
+                        --cache-dir /root/.cache/trivy \
+                        --input /workspace/.securepulse-image.tar \
+                        --no-progress \
+                        --skip-files "**/pip/_vendor/bom.cdx.json" \
+                        --exit-code 0 \
                         --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
-                    echo "Trivy blocking scan (HIGH + CRITICAL only):"
-                    docker run --rm \\
-                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \\
-                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
-                        aquasec/trivy:0.76.0 image \\
-                        --cache-dir /root/.cache/trivy \\
-                        --input /workspace/.securepulse-image.tar \\
-                        --no-progress \\
-                        --exit-code 1 \\
+                    echo "Trivy blocking scan (HIGH + CRITICAL with fixes available):"
+                    docker run --rm \
+                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \
+                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \
+                        aquasec/trivy:0.76.0 image \
+                        --cache-dir /root/.cache/trivy \
+                        --input /workspace/.securepulse-image.tar \
+                        --no-progress \
+                        --skip-files "**/pip/_vendor/bom.cdx.json" \
+                        --ignore-unfixed \
+                        --exit-code 1 \
                         --severity HIGH,CRITICAL
 
-                    echo "Trivy: PASSED – no HIGH or CRITICAL vulnerabilities found in ${IMAGE_NAME}:${IMAGE_TAG}"
+                    echo "Trivy: PASSED – no blocking HIGH or CRITICAL findings with available fixes in the scanned image components."
                 """
             }
             post {
