@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SecurePulse – Dashboard JavaScript
  * Fetches metrics from /api/dashboard and populates all cards.
  * Stage 1: Local Development
@@ -136,8 +136,77 @@ async function loadDashboard() {
   }
 }
 
-// Load on page ready and auto-refresh every 30 seconds
+/**
+ * Load the latest Jenkins CI/CD build status.
+ */
+async function loadJenkinsStatus() {
+  try {
+    const response = await fetch("/api/jenkins-status", {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    setText("jenkins-status", data.status || "UNKNOWN");
+    setText(
+      "jenkins-build",
+      "Latest build: " +
+        (data.build_number == null ? "--" : "#" + data.build_number)
+    );
+    setText("jenkins-gate", "Security gate: " + data.security_gate);
+    setText(
+      "jenkins-time",
+      "Build time: " + (data.build_time || "Not available")
+    );
+    setText("jenkins-message", data.message || "");
+
+    const statusElement = document.getElementById("jenkins-status");
+    if (statusElement) {
+      statusElement.className = "metric-status";
+
+      if (data.status === "SUCCESS") {
+        statusElement.classList.add("status-healthy");
+      } else if (
+        data.status === "FAILURE" ||
+        data.status === "UNSTABLE"
+      ) {
+        statusElement.classList.add("status-unhealthy");
+      }
+    }
+
+    const link = document.getElementById("jenkins-link");
+    if (link) {
+      const buildUrl = data.build_url
+        ? new URL(data.build_url)
+        : null;
+
+      if (
+        data.available &&
+        buildUrl &&
+        buildUrl.origin === "http://localhost:8081"
+      ) {
+        link.href = buildUrl.href;
+        link.hidden = false;
+      } else {
+        link.hidden = true;
+      }
+    }
+  } catch (error) {
+    console.error("Failed to load Jenkins status:", error);
+    setText("jenkins-status", "UNAVAILABLE");
+    setText("jenkins-gate", "Security gate: UNKNOWN");
+    setText("jenkins-message", "Could not retrieve Jenkins status.");
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   loadDashboard();
+  loadJenkinsStatus();
+
   setInterval(loadDashboard, 30_000);
+  setInterval(loadJenkinsStatus, 30_000);
 });

@@ -1,0 +1,106 @@
+# ============================================================
+# SecurePulse – Dockerfile.jenkins
+#
+# Builds a custom Jenkins LTS image with Python 3, pip, and
+# the Docker CLI pre-installed so the Jenkinsfile can:
+#   • create a Python venv and run pytest
+#   • call "docker build" against the HOST Docker daemon
+#
+# IMPORTANT – Docker daemon access:
+#   This image installs only the Docker CLI (client binary).
+#   No Docker daemon runs inside this container (no DinD).
+#   To allow Jenkins to reach the host daemon, bind-mount the
+#   host socket when running the container:
+#
+#     docker run -d \
+#       -v /var/run/docker.sock:/var/run/docker.sock \
+#       -v jenkins_home:/var/jenkins_home \
+#       -p 8080:8080 -p 50000:50000 \
+#       --name jenkins-securepulse \
+#       securepulse-jenkins:latest
+#
+#   The jenkins user is added to the "docker" group (GID 999)
+#   inside the image so it can use the mounted socket without
+#   needing --privileged. Adjust the GID below if the host
+#   docker group uses a different GID (check with:
+#     stat -c %g /var/run/docker.sock
+#   on the host).
+# ============================================================
+
+FROM jenkins/jenkins:lts
+
+# ── Switch to root to install system packages ─────────────────
+USER root
+
+# ── Step 1: Install base utilities + Python 3 ─────────────────
+# The jenkins/jenkins:lts image is Debian-based, so apt-get is
+# the correct package manager.
+#
+# python3-pip     → pip for Python 3
+# python3-venv    → venv module used by the Jenkinsfile build step
+# ca-certificates → needed to verify HTTPS connections (Docker repo)
+# curl            → used to download the Docker GPG key
+# gnupg           → used to dearmor the GPG key
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        ca-certificates \
+        curl \
+        gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Step 2: Verify Python tools are present ───────────────────
+# This runs immediately after install so build fails fast if
+# the Python packages above were not installed correctly.
+RUN python3 --version && pip3 --version
+
+# ── Step 3: Install the official Docker CLI from Docker's repo ─
+# Root cause of the original broken /usr/bin/docker:
+#   The previous Dockerfile used a nested double-quoted echo:
+#
+#     echo "deb [...] $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee ...
+#
+#   Inside a RUN shell the inner "$VERSION_CODENAME" is expanded
+#   by the outer shell before the echo runs, but the surrounding
+#   double-quotes cause the shell to mis-parse the quoting
+#   boundaries.  On some Debian variants this results in an empty
+#   or malformed sources entry, so apt cannot find docker-ce-cli
+#   and the package is either skipped or installed as a 0-byte stub.
+#
+# Fix: Source /etc/os-release first to set $VERSION_CODENAME as a
+# real shell variable, then write the sources line using printf
+# (no nested quoting ambiguity).  The curl | gpg pipeline is kept
+# identical to the official Docker installation guide.
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && . /etc/os-release \
+    && printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian %s stable\n' \
+        "$(dpkg --print-architecture)" \
+        "${VERSION_CODENAME}" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Step 4: Verify the Docker CLI is a real, executable binary ─
+# Confirm /usr/bin/docker exists, has a non-zero size, and runs.
+# If the install above produced a 0-byte file this step will fail
+# the build immediately with a clear error instead of a silent
+# runtime "exec format error".
+RUN test -s /usr/bin/docker \
+    && docker --version
+
+# ── Step 5: Grant the jenkins user access to the host Docker socket
+# The host docker group is typically GID 999. Running:
+#   stat -c %g /var/run/docker.sock
+# on the host confirms the exact GID; adjust ARG below if needed.
+ARG DOCKER_GID=999
+RUN groupadd -f -g ${DOCKER_GID} docker \
+    && usermod -aG docker jenkins
+
+# ── Drop back to the unprivileged jenkins user ─────────────────
+USER jenkins

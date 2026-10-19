@@ -1,26 +1,24 @@
 /*
- * SecurePulse – Declarative Jenkins Pipeline
+ * SecurePulse - Declarative Jenkins Pipeline
  * Stage 3: CI/CD with Jenkins
  *
  * Agent requirements
  * ------------------
- *   • Python 3   (python3 / python both tried; see Install Dependencies stage)
- *   • pip        (bundled with Python 3.4+)
- *   • Docker     (daemon must be running; Jenkins user needs Docker socket access)
- *   • pip-audit  (installed into the build venv during Security Scan stage)
- *   • Trivy      (runs from the official aquasec/trivy Docker image)
+ *   - Python 3 (python3 or python)
+ *   - pip
+ *   - Docker (daemon running; Jenkins user can access Docker socket)
+ *   - Trivy runs from the official aquasec/trivy Docker image
  *
  * No credentials or secrets are hardcoded.
- * The Docker image is built locally only – no push to any registry.
+ * The Docker image is built locally only; it is not pushed to a registry.
  *
  * Security Scan blocking policy
  * -----------------------------
- *   pip-audit : known vulnerabilities in requirements.txt fail the pipeline
- *   Trivy     : HIGH or CRITICAL findings with available fixes fail the gate
- *               Unfixed findings are reported but do not block the build.
- *               The embedded pip vendor SBOM is excluded from Trivy scanning
- *               because it contains stale package-version metadata.
-
+ *   pip-audit: known vulnerabilities in requirements.txt fail the pipeline.
+ *   Trivy: HIGH or CRITICAL findings with available fixes fail the gate.
+ *   Unfixed Trivy findings are reported but do not block the build.
+ *   The embedded pip vendor SBOM is excluded because it contains stale
+ *   package-version metadata.
  */
 
 pipeline {
@@ -83,7 +81,7 @@ pipeline {
                     junit allowEmptyResults: true, testResults: "test-results.xml"
                 }
                 failure {
-                    echo "Tests FAILED – Docker build will be skipped."
+                    echo "Tests FAILED - Docker build will be skipped."
                 }
                 success {
                     echo "All tests PASSED."
@@ -117,12 +115,21 @@ pipeline {
                 echo "==> Running security scans..."
                 sh """
                     set -eu
+                    rm -f pip-audit-report.json trivy-report.json
 
                     # pip-audit: scan pinned Python dependencies.
                     echo "--- [1/2] pip-audit: scanning requirements.txt ---"
                     ${VENV_DIR}/bin/pip install pip-audit --quiet
-                    ${VENV_DIR}/bin/pip-audit -r requirements.txt --progress-spinner off
-                    echo "pip-audit: PASSED – no known vulnerabilities in requirements.txt"
+                    set +e
+                    ${VENV_DIR}/bin/pip-audit -r requirements.txt --progress-spinner off --format json --output pip-audit-report.json
+                    PIP_AUDIT_STATUS=\$?
+                    set -e
+
+                    if [ "\$PIP_AUDIT_STATUS" -eq 0 ]; then
+                        echo "pip-audit: PASSED - no known vulnerabilities in requirements.txt"
+                    else
+                        echo "pip-audit detected vulnerabilities or a scan error. Report saved for review."
+                    fi
 
                     # Trivy: use its official Docker image instead of downloading a binary.
                     echo "--- [2/2] Trivy: scanning ${IMAGE_NAME}:${IMAGE_TAG} ---"
@@ -130,48 +137,79 @@ pipeline {
                     docker volume create securepulse-trivy-cache >/dev/null
 
                     # Export the just-built image to the Jenkins workspace.
-                    # The trap removes the archive even if either scan fails.
+                    # The trap removes the archive even if a scan fails.
                     ARCHIVE_PATH="\${WORKSPACE}/.securepulse-image.tar"
                     trap 'rm -f "\$ARCHIVE_PATH"' EXIT
                     docker save --output "\$ARCHIVE_PATH" ${IMAGE_NAME}:${IMAGE_TAG}
 
                     # Read the archive from the existing Jenkins home volume.
-                    # This assumes the standard Jenkins job workspace path:
+                    # This assumes the standard job workspace path:
                     # /var/jenkins_home/workspace/SecurePulse_CI-CD
-                    echo "Trivy informational scan (all severities):"
-                    docker run --rm \
-                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \
-                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \
-                        aquasec/trivy:0.76.0 image \
-                        --cache-dir /root/.cache/trivy \
-                        --input /workspace/.securepulse-image.tar \
-                        --no-progress \
-                        --skip-files "**/pip/_vendor/bom.cdx.json" \
-                        --exit-code 0 \
+                    # First Trivy run writes its JSON report into the workspace.
+                    docker run --rm \\
+                        --mount type=volume,src=jenkins_home,dst=/workspace,volume-subpath=workspace/SecurePulse_CI-CD \\
+                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
+                        aquasec/trivy:0.76.0 image \\
+                        --cache-dir /root/.cache/trivy \\
+                        --input /workspace/.securepulse-image.tar \\
+                        --no-progress \\
+                        --skip-files "**/pip/_vendor/bom.cdx.json" \\
+                        --format json \\
+                        --output /workspace/trivy-report.json \\
+                        --exit-code 0 \\
                         --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
+                    # Informational scan: print findings at all severities without blocking.
+                    docker run --rm \\
+                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \\
+                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
+                        aquasec/trivy:0.76.0 image \\
+                        --cache-dir /root/.cache/trivy \\
+                        --input /workspace/.securepulse-image.tar \\
+                        --no-progress \\
+                        --skip-files "**/pip/_vendor/bom.cdx.json" \\
+                        --exit-code 0 \\
+                        --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+
+                    # Blocking scan: fail on fixable HIGH or CRITICAL findings.
                     echo "Trivy blocking scan (HIGH + CRITICAL with fixes available):"
-                    docker run --rm \
-                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \
-                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \
-                        aquasec/trivy:0.76.0 image \
-                        --cache-dir /root/.cache/trivy \
-                        --input /workspace/.securepulse-image.tar \
-                        --no-progress \
-                        --skip-files "**/pip/_vendor/bom.cdx.json" \
-                        --ignore-unfixed \
-                        --exit-code 1 \
+                    docker run --rm \\
+                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \\
+                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
+                        aquasec/trivy:0.76.0 image \\
+                        --cache-dir /root/.cache/trivy \\
+                        --input /workspace/.securepulse-image.tar \\
+                        --no-progress \\
+                        --skip-files "**/pip/_vendor/bom.cdx.json" \\
+                        --ignore-unfixed \\
+                        --exit-code 1 \\
                         --severity HIGH,CRITICAL
 
-                    echo "Trivy: PASSED – no blocking HIGH or CRITICAL findings with available fixes in the scanned image components."
+                    # Validate report files after all scans have run.
+                    test -s pip-audit-report.json
+                    test -s trivy-report.json
+
+                    if [ "\$PIP_AUDIT_STATUS" -ne 0 ]; then
+                        echo "ERROR: pip-audit reported vulnerabilities or a scan error. Blocking deployment."
+                        exit 1
+                    fi
+
+                    echo "Trivy: PASSED - no blocking HIGH or CRITICAL findings with available fixes in the scanned image components."
                 """
             }
             post {
+                always {
+                    archiveArtifacts(
+                        artifacts: 'pip-audit-report.json,trivy-report.json',
+                        allowEmptyArchive: true,
+                        fingerprint: true
+                    )
+                }
                 success {
-                    echo "Security Scan PASSED – pip-audit and Trivy found no blocking vulnerabilities."
+                    echo "Security Scan PASSED - pip-audit and Trivy found no blocking vulnerabilities."
                 }
                 failure {
-                    echo "Security Scan FAILED – vulnerabilities or scanner errors detected. Deployment is blocked. Review scan output above."
+                    echo "Security Scan FAILED - vulnerabilities or scanner errors detected. Deployment is blocked. Review scan output above."
                 }
             }
         }
@@ -213,16 +251,16 @@ pipeline {
                         exit 1
                     fi
 
-                    echo "Deployment VERIFIED – securepulse-app is running on host port 5001."
+                    echo "Deployment VERIFIED - securepulse-app is running on host port 5001."
                     docker ps --filter "name=^securepulse-app\$"
                 """
             }
             post {
                 success {
-                    echo "Deploy stage PASSED – securepulse-app is live on port 5001."
+                    echo "Deploy stage PASSED - securepulse-app is live on port 5001."
                 }
                 failure {
-                    echo "Deploy stage FAILED – securepulse-app did not start correctly. Review logs above."
+                    echo "Deploy stage FAILED - securepulse-app did not start correctly. Review logs above."
                 }
             }
         }
@@ -235,13 +273,13 @@ pipeline {
             echo "Pipeline finished. Status: ${currentBuild.currentResult}"
         }
         success {
-            echo "BUILD SUCCEEDED – SecurePulse tests, image build, security scans, and deployment completed."
+            echo "BUILD SUCCEEDED - SecurePulse tests, image build, security scans, and deployment completed."
         }
         failure {
-            echo "BUILD FAILED – review the stage logs above."
+            echo "BUILD FAILED - review the stage logs above."
         }
         unstable {
-            echo "BUILD UNSTABLE – some tests may have been skipped or flaky."
+            echo "BUILD UNSTABLE - some tests may have been skipped or flaky."
         }
     }
 }

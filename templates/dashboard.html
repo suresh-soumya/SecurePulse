@@ -1,4 +1,5 @@
-﻿<!DOCTYPE html>
+
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -7,8 +8,6 @@
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
-
-  <!-- ── Navigation ─────────────────────────────────────────────── -->
   <nav class="navbar">
     <div class="nav-brand">
       <span class="brand-icon">&#9889;</span>
@@ -22,12 +21,9 @@
   </nav>
 
   <main class="container">
-
-    <!-- ── Section: Product Metrics ──────────────────────────────── -->
+    <!-- Product Metrics -->
     <h2 class="section-title">Product Metrics</h2>
     <div class="grid">
-
-      <!-- Application Health -->
       <div class="card" id="card-health">
         <div class="card-header">
           <span class="card-icon">&#10084;&#65039;</span>
@@ -35,11 +31,10 @@
         </div>
         <div class="card-body">
           <p class="metric-status" id="health-status">--</p>
-          <p class="metric-sub"   id="health-details">--</p>
+          <p class="metric-sub" id="health-details">--</p>
         </div>
       </div>
 
-      <!-- Active Users -->
       <div class="card" id="card-users">
         <div class="card-header">
           <span class="card-icon">&#128100;</span>
@@ -51,7 +46,6 @@
         </div>
       </div>
 
-      <!-- Conversion Rate -->
       <div class="card" id="card-conversion">
         <div class="card-header">
           <span class="card-icon">&#128200;</span>
@@ -63,7 +57,6 @@
         </div>
       </div>
 
-      <!-- Feature Usage -->
       <div class="card card-wide" id="card-features">
         <div class="card-header">
           <span class="card-icon">&#128187;</span>
@@ -75,14 +68,11 @@
           </ul>
         </div>
       </div>
+    </div>
 
-    </div><!-- /grid -->
-
-    <!-- ── Section: DevOps Metrics ───────────────────────────────── -->
+    <!-- DevOps Metrics -->
     <h2 class="section-title">DevOps Metrics</h2>
     <div class="grid">
-
-      <!-- Deployment Success Rate -->
       <div class="card" id="card-deploy">
         <div class="card-header">
           <span class="card-icon">&#128640;</span>
@@ -90,11 +80,10 @@
         </div>
         <div class="card-body">
           <p class="metric-value" id="deploy-value">--</p>
-          <p class="metric-sub"   id="deploy-sub">--</p>
+          <p class="metric-sub" id="deploy-sub">--</p>
         </div>
       </div>
 
-      <!-- Uptime -->
       <div class="card" id="card-uptime">
         <div class="card-header">
           <span class="card-icon">&#9201;&#65039;</span>
@@ -102,11 +91,10 @@
         </div>
         <div class="card-body">
           <p class="metric-value" id="uptime-value">--</p>
-          <p class="metric-sub"   id="uptime-period">--</p>
+          <p class="metric-sub" id="uptime-period">--</p>
         </div>
       </div>
 
-      <!-- Response Time -->
       <div class="card" id="card-response">
         <div class="card-header">
           <span class="card-icon">&#9889;</span>
@@ -114,11 +102,10 @@
         </div>
         <div class="card-body">
           <p class="metric-value" id="response-value">--</p>
-          <p class="metric-sub"   id="response-sub">--</p>
+          <p class="metric-sub" id="response-sub">--</p>
         </div>
       </div>
 
-      <!-- Error Rate -->
       <div class="card" id="card-error">
         <div class="card-header">
           <span class="card-icon">&#9888;&#65039;</span>
@@ -129,14 +116,31 @@
           <p class="metric-trend" id="error-trend">--</p>
         </div>
       </div>
+    </div>
 
-    </div><!-- /grid -->
+    <!-- Jenkins CI/CD Pipeline Status -->
+    <h2 class="section-title">CI/CD Pipeline</h2>
+    <div class="grid">
+      <div class="card card-wide" id="card-jenkins">
+        <div class="card-header">
+          <span class="card-icon">&#128640;</span>
+          <span class="card-title">Jenkins Pipeline Status</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-status" id="jenkins-status">Loading...</p>
+          <p class="metric-sub" id="jenkins-build">Latest build: --</p>
+          <p class="metric-sub" id="jenkins-gate">Security gate: --</p>
+          <p class="metric-sub" id="jenkins-time">Build time: --</p>
+          <p class="metric-sub" id="jenkins-message">Connecting to Jenkins...</p>
+          <a id="jenkins-link" href="#" target="_blank"
+             rel="noopener noreferrer" hidden>View Jenkins build</a>
+        </div>
+      </div>
+    </div>
 
-    <!-- ── Section: Security & Infrastructure ────────────────────── -->
+    <!-- Security & Infrastructure -->
     <h2 class="section-title">Security &amp; Infrastructure</h2>
     <div class="grid">
-
-      <!-- Security Vulnerabilities -->
       <div class="card card-wide" id="card-security">
         <div class="card-header">
           <span class="card-icon">&#128274;</span>
@@ -163,7 +167,6 @@
         <p class="metric-sub card-footer-text" id="vuln-scan">--</p>
       </div>
 
-      <!-- Infrastructure Status -->
       <div class="card card-wide" id="card-infra">
         <div class="card-header">
           <span class="card-icon">&#127970;</span>
@@ -175,13 +178,11 @@
           </ul>
         </div>
       </div>
-
-    </div><!-- /grid -->
-
+    </div>
   </main>
 
   <footer class="footer">
-    <p>SecurePulse &copy; 2026 &mdash; Stage 1: Local Development</p>
+    <p>SecurePulse &copy; 2026 &mdash; Stage 2: Jenkins Integration</p>
   </footer>
 
   <script src="/static/js/dashboard.js"></script>

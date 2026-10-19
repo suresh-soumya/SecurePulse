@@ -42,3 +42,9 @@ build/
 # ── Logs ──────────────────────────────────────────────────────────
 *.log
 logs/
+
+# Local secrets and accidental command output
+token api.txt
+Jenkinsfile.backup
+*security scan and image fixes*
+*ForEach-Object*
