@@ -214,60 +214,70 @@ pipeline {
             }
         }
 
-        stage("Deploy SecurePulse") {
-            steps {
-                echo "==> Deploying ${IMAGE_NAME}:${IMAGE_TAG} as securepulse-app..."
-                sh """
-                    set -eu
+        
+stage("Deploy SecurePulse") {
+    steps {
+        echo "==> Deploying ${IMAGE_NAME}:${IMAGE_TAG} as securepulse-app..."
 
-                    # Select only the exact securepulse-app container name.
-                    if docker ps -a --filter "name=^securepulse-app\$" --format '{{.Names}}' | grep -q '^securepulse-app\$'; then
-                        STATUS=\$(docker inspect -f '{{.State.Status}}' securepulse-app)
-                        if [ "\$STATUS" = "running" ]; then
-                            echo "Stopping existing securepulse-app container..."
-                            docker stop securepulse-app
-                        fi
-                        echo "Removing existing securepulse-app container..."
-                        docker rm securepulse-app
-                    else
-                        echo "No existing securepulse-app container found - fresh deploy."
+        withCredentials([
+            usernamePassword(
+                credentialsId: 'securepulse-jenkins-api',
+                usernameVariable: 'JENKINS_USER',
+                passwordVariable: 'JENKINS_API_TOKEN'
+            )
+        ]) {
+            sh '''
+                set -eu
+
+                # Stop and remove only the SecurePulse app container.
+                if docker ps -a --filter "name=^securepulse-app$" --format '{{.Names}}' | grep -q '^securepulse-app$'; then
+                    STATUS=$(docker inspect -f '{{.State.Status}}' securepulse-app)
+
+                    if [ "$STATUS" = "running" ]; then
+                        docker stop securepulse-app
                     fi
 
-                    docker run -d \\
-                        --name securepulse-app \\
-                        --restart unless-stopped \\
-                        -p 5001:5000 \\
-                        ${IMAGE_NAME}:${IMAGE_TAG}
+                    docker rm securepulse-app
+                fi
 
-                    echo "Container started. Waiting 5 seconds for the app to initialize..."
-                    sleep 5
+                # Start SecurePulse with Jenkins API credentials.
+                docker run -d \
+                    --name securepulse-app \
+                    --restart unless-stopped \
+                    -p 5001:5000 \
+                    -e JENKINS_USER="$JENKINS_USER" \
+                    -e JENKINS_API_TOKEN="$JENKINS_API_TOKEN" \
+                    securepulse:latest
 
-                    STATUS=\$(docker inspect -f '{{.State.Status}}' securepulse-app 2>/dev/null || echo "not_found")
-                    echo "Container status: \$STATUS"
-                    if [ "\$STATUS" != "running" ]; then
-                        echo "ERROR: securepulse-app is NOT running (status=\$STATUS)."
-                        echo "Container logs:"
-                        docker logs securepulse-app || true
-                        exit 1
-                    fi
+                sleep 5
 
-                    echo "Deployment VERIFIED - securepulse-app is running on host port 5001."
-                    docker ps --filter "name=^securepulse-app\$"
-                """
-            }
-            post {
-                success {
-                    echo "Deploy stage PASSED - securepulse-app is live on port 5001."
-                }
-                failure {
-                    echo "Deploy stage FAILED - securepulse-app did not start correctly. Review logs above."
-                }
-            }
+                STATUS=$(docker inspect -f '{{.State.Status}}' securepulse-app 2>/dev/null || echo "not_found")
+                echo "Container status: $STATUS"
+
+                if [ "$STATUS" != "running" ]; then
+                    echo "ERROR: securepulse-app is not running."
+                    docker logs securepulse-app || true
+                    exit 1
+                fi
+
+                echo "Deployment verified on host port 5001."
+            '''
         }
     }
 
     post {
-        always {
+        success {
+            echo "Deploy stage PASSED - securepulse-app is live on port 5001."
+        }
+        failure {
+            echo "Deploy stage FAILED - review the logs above."
+        }
+    }
+}
+
+
+    post {
+        always {Deploy SecurePulse
             echo "==> Cleaning up virtual environment..."
             sh "rm -rf ${VENV_DIR}"
             echo "Pipeline finished. Status: ${currentBuild.currentResult}"
