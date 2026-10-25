@@ -3,8 +3,23 @@
 # Stage 2: Docker containerisation
 # ================================================================
 
-# ── Base image ────────────────────────────────────────────────────
-# python:3.11-slim keeps the image small while matching the dev env.
+# ── Stage 1: Build dependencies ───────────────────────────────────
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /build
+
+# Upgrade installation tools and security-sensitive dependencies
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && python -m pip install --no-cache-dir --upgrade "urllib3>=2.8.0" "msgpack>=1.2.1"
+
+# Install only the runtime dependency into a separate directory
+RUN python -m pip install --no-cache-dir --prefix=/install "Flask==3.1.3"
+
+
+# ── Stage 2: Production image ─────────────────────────────────────
 FROM python:3.11-slim
 
 # Apply available security updates to Debian base packages
@@ -17,35 +32,24 @@ LABEL description="SecurePulse – Cloud-Based DevSecOps and Product Intelligenc
 LABEL stage="2-docker"
 
 # ── Environment variables ─────────────────────────────────────────
-# Prevents Python from writing .pyc files to disc.
 ENV PYTHONDONTWRITEBYTECODE=1
-# Ensures Python output is sent straight to the terminal (no buffering).
 ENV PYTHONUNBUFFERED=1
-# Tell Flask to run in production mode inside the container.
 ENV FLASK_ENV=production
 
 # ── Working directory ─────────────────────────────────────────────
 WORKDIR /app
 
-# ── Install dependencies ──────────────────────────────────────────
-# Copy requirements first so Docker layer-caches the install step.
-# The local venv is excluded via .dockerignore.
-COPY requirements.txt .
+# Copy installed Flask runtime dependencies from the builder
+COPY --from=builder /install /usr/local
 
+# Remove build tooling not needed by the Flask runtime
+RUN python -m pip uninstall -y setuptools
 
-RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && python -m pip install --no-cache-dir --upgrade "urllib3>=2.8.0" "msgpack>=1.2.1" \
-    && python -m pip install --no-cache-dir -r requirements.txt
-
-
-# ── Copy application source ───────────────────────────────────────
+# Copy application source
 COPY . .
 
-# ── Expose port ───────────────────────────────────────────────────
+# ── Expose application port ───────────────────────────────────────
 EXPOSE 5000
 
-# ── Run the application ───────────────────────────────────────────
-# Gunicorn is not added yet to keep Stage 2 minimal.
-# Flask''s built-in server listens on 0.0.0.0 so the container port
-# is reachable from the host via -p 5000:5000.
+# ── Start SecurePulse ─────────────────────────────────────────────
 CMD ["python", "app.py"]
