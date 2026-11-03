@@ -1,43 +1,44 @@
+
 /*
- * SecurePulse - Declarative Jenkins Pipeline
- * Stage 3: CI/CD with Jenkins
+ * SecurePulse – Declarative Jenkins Pipeline
  *
- * Agent requirements
- * ------------------
- *   - Python 3 (python3 or python)
- *   - pip
- *   - Docker (daemon running; Jenkins user can access Docker socket)
- *   - Trivy runs from the official aquasec/trivy Docker image
+ * Pipeline stages:
+ *   1. Checkout
+ *   2. Install Dependencies
+ *   3. Run Tests
+ *   4. Build Docker Image
+ *   5. Security Scan (pip-audit + Trivy)
+ *   6. Deploy to AWS EC2 using SSH
  *
- * No credentials or secrets are hardcoded.
- * The Docker image is built locally only; it is not pushed to a registry.
+ * Credentials required in Jenkins:
+ *   aws-ec2-ssh          - SSH Username with private key
+ *   securepulse-jenkins-api - Username with password/API token
  *
- * Security Scan blocking policy
- * -----------------------------
- *   pip-audit: known vulnerabilities in requirements.txt fail the pipeline.
- *   Trivy: HIGH or CRITICAL findings with available fixes fail the gate.
- *   Unfixed Trivy findings are reported but do not block the build.
- *   The embedded pip vendor SBOM is excluded because it contains stale
- *   package-version metadata.
+ * Security Scan blocking policy:
+ *   pip-audit : Any known dependency vulnerability fails the pipeline.
+ *   Trivy     : HIGH or CRITICAL image vulnerabilities fail the pipeline.
  */
 
 pipeline {
+
     agent any
 
     environment {
         IMAGE_NAME = "securepulse"
         IMAGE_TAG  = "latest"
         VENV_DIR   = ".jenkins-venv"
+        EC2_HOST   = "52.62.211.106"
     }
 
     options {
         buildDiscarder(logRotator(numToKeepStr: "10", artifactNumToKeepStr: "3"))
-        timeout(time: 20, unit: "MINUTES")
+        timeout(time: 30, unit: "MINUTES")
         disableConcurrentBuilds()
         timestamps()
     }
 
     stages {
+
         stage("Checkout") {
             steps {
                 echo "==> Checking out source code..."
@@ -50,13 +51,15 @@ pipeline {
         stage("Install Dependencies") {
             steps {
                 echo "==> Creating virtual environment and installing dependencies..."
+
                 sh """
                     set -eu
-                    PYTHON=\$(command -v python3 || command -v python)
-                    echo "Using Python: \$PYTHON"
-                    \$PYTHON --version
 
-                    \$PYTHON -m venv ${VENV_DIR}
+                    PYTHON=\\$(command -v python3 || command -v python)
+                    echo "Using Python: \\$PYTHON"
+                    \\$PYTHON --version
+
+                    \\$PYTHON -m venv ${VENV_DIR}
                     ${VENV_DIR}/bin/pip install --upgrade pip --quiet
                     ${VENV_DIR}/bin/pip install -r requirements.txt --quiet
 
@@ -69,20 +72,25 @@ pipeline {
         stage("Run Tests") {
             steps {
                 echo "==> Running pytest suite..."
+
                 sh """
                     set -eu
+
                     ${VENV_DIR}/bin/python -m pytest tests/ -v \\
                         --tb=short \\
                         --junit-xml=test-results.xml
                 """
             }
+
             post {
                 always {
                     junit allowEmptyResults: true, testResults: "test-results.xml"
                 }
+
                 failure {
                     echo "Tests FAILED - Docker build will be skipped."
                 }
+
                 success {
                     echo "All tests PASSED."
                 }
@@ -92,17 +100,21 @@ pipeline {
         stage("Build Docker Image") {
             steps {
                 echo "==> Building Docker image ${IMAGE_NAME}:${IMAGE_TAG}..."
+
                 sh """
                     set -eu
+
                     docker build \\
                         --no-cache \\
                         -t ${IMAGE_NAME}:${IMAGE_TAG} \\
                         -t ${IMAGE_NAME}:build-${env.BUILD_NUMBER} \\
                         .
+
                     echo "Docker image built successfully:"
                     docker images ${IMAGE_NAME}
                 """
             }
+
             post {
                 success {
                     echo "Image ${IMAGE_NAME}:${IMAGE_TAG} is ready for scanning."
@@ -113,53 +125,31 @@ pipeline {
         stage("Security Scan") {
             steps {
                 echo "==> Running security scans..."
+
                 sh """
                     set -eu
-                    rm -f pip-audit-report.json trivy-report.json
 
-                    # pip-audit: scan pinned Python dependencies.
+                    # pip-audit: scan Python dependencies.
                     echo "--- [1/2] pip-audit: scanning requirements.txt ---"
+
                     ${VENV_DIR}/bin/pip install pip-audit --quiet
-                    set +e
-                    ${VENV_DIR}/bin/pip-audit -r requirements.txt --progress-spinner off --format json --output pip-audit-report.json
-                    PIP_AUDIT_STATUS=\$?
-                    set -e
+                    ${VENV_DIR}/bin/pip-audit -r requirements.txt --progress-spinner off
 
-                    if [ "\$PIP_AUDIT_STATUS" -eq 0 ]; then
-                        echo "pip-audit: PASSED - no known vulnerabilities in requirements.txt"
-                    else
-                        echo "pip-audit detected vulnerabilities or a scan error. Report saved for review."
-                    fi
+                    echo "pip-audit: PASSED"
 
-                    # Trivy: use its official Docker image instead of downloading a binary.
+                    # Trivy: scan the Docker image.
                     echo "--- [2/2] Trivy: scanning ${IMAGE_NAME}:${IMAGE_TAG} ---"
+
                     docker pull aquasec/trivy:0.76.0
                     docker volume create securepulse-trivy-cache >/dev/null
 
-                    # Export the just-built image to the Jenkins workspace.
-                    # The trap removes the archive even if a scan fails.
                     ARCHIVE_PATH="\${WORKSPACE}/.securepulse-image.tar"
                     trap 'rm -f "\$ARCHIVE_PATH"' EXIT
+
                     docker save --output "\$ARCHIVE_PATH" ${IMAGE_NAME}:${IMAGE_TAG}
 
-                    # Read the archive from the existing Jenkins home volume.
-                    # This assumes the standard job workspace path:
-                    # /var/jenkins_home/workspace/SecurePulse_CI-CD
-                    # First Trivy run writes its JSON report into the workspace.
-                    docker run --rm \\
-                        --mount type=volume,src=jenkins_home,dst=/workspace,volume-subpath=workspace/SecurePulse_CI-CD \\
-                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
-                        aquasec/trivy:0.76.0 image \\
-                        --cache-dir /root/.cache/trivy \\
-                        --input /workspace/.securepulse-image.tar \\
-                        --no-progress \\
-                        --skip-files "**/pip/_vendor/bom.cdx.json" \\
-                        --format json \\
-                        --output /workspace/trivy-report.json \\
-                        --exit-code 0 \\
-                        --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+                    echo "Trivy informational scan (all severities):"
 
-                    # Informational scan: print findings at all severities without blocking.
                     docker run --rm \\
                         --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \\
                         --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
@@ -167,12 +157,11 @@ pipeline {
                         --cache-dir /root/.cache/trivy \\
                         --input /workspace/.securepulse-image.tar \\
                         --no-progress \\
-                        --skip-files "**/pip/_vendor/bom.cdx.json" \\
                         --exit-code 0 \\
                         --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
-                    # Blocking scan: fail on fixable HIGH or CRITICAL findings.
-                    echo "Trivy blocking scan (HIGH + CRITICAL with fixes available):"
+                    echo "Trivy blocking scan (HIGH + CRITICAL):"
+
                     docker run --rm \\
                         --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \\
                         --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
@@ -180,45 +169,34 @@ pipeline {
                         --cache-dir /root/.cache/trivy \\
                         --input /workspace/.securepulse-image.tar \\
                         --no-progress \\
-                        --skip-files "**/pip/_vendor/bom.cdx.json" \\
-                        --ignore-unfixed \\
                         --exit-code 1 \\
                         --severity HIGH,CRITICAL
 
-                    # Validate report files after all scans have run.
-                    test -s pip-audit-report.json
-                    test -s trivy-report.json
-
-                    if [ "\$PIP_AUDIT_STATUS" -ne 0 ]; then
-                        echo "ERROR: pip-audit reported vulnerabilities or a scan error. Blocking deployment."
-                        exit 1
-                    fi
-
-                    echo "Trivy: PASSED - no blocking HIGH or CRITICAL findings with available fixes in the scanned image components."
+                    echo "Trivy: PASSED"
                 """
             }
+
             post {
-                always {
-                    archiveArtifacts(
-                        artifacts: 'pip-audit-report.json,trivy-report.json',
-                        allowEmptyArchive: true,
-                        fingerprint: true
-                    )
-                }
                 success {
-                    echo "Security Scan PASSED - pip-audit and Trivy found no blocking vulnerabilities."
+                    echo "Security Scan PASSED."
                 }
+
                 failure {
-                    echo "Security Scan FAILED - vulnerabilities or scanner errors detected. Deployment is blocked. Review scan output above."
+                    echo "Security Scan FAILED. Deployment is blocked."
                 }
             }
         }
 
         stage("Deploy SecurePulse") {
             steps {
-                echo "==> Deploying ${IMAGE_NAME}:${IMAGE_TAG} as securepulse-app..."
+                echo "==> Deploying SecurePulse to AWS EC2..."
 
                 withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'aws-ec2-ssh',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    ),
                     usernamePassword(
                         credentialsId: 'securepulse-jenkins-api',
                         usernameVariable: 'JENKINS_USER',
@@ -228,47 +206,83 @@ pipeline {
                     sh '''
                         set -eu
 
-                        # Stop and remove only the SecurePulse app container.
-                        if docker ps -a --filter "name=^securepulse-app$" --format '{{.Names}}' | grep -q '^securepulse-app$'; then
-                            STATUS=$(docker inspect -f '{{.State.Status}}' securepulse-app)
+                        ARCHIVE="securepulse-image.tar.gz"
+                        trap 'rm -f "$ARCHIVE"' EXIT
 
-                            if [ "$STATUS" = "running" ]; then
-                                docker stop securepulse-app
-                            fi
+                        echo "Saving Docker image..."
+                        docker save "$IMAGE_NAME:$IMAGE_TAG" | gzip > "$ARCHIVE"
 
-                            docker rm securepulse-app
-                        fi
+                        echo "Transferring image to AWS EC2..."
 
-                        # Start SecurePulse with Jenkins API credentials.
-                        docker run -d \\
-                            --name securepulse-app \\
-                            --restart unless-stopped \\
-                            -p 5001:5000 \\
-                            -e JENKINS_USER="$JENKINS_USER" \\
-                            -e JENKINS_API_TOKEN="$JENKINS_API_TOKEN" \\
-                            securepulse:latest
+                        scp -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=accept-new \
+                            "$ARCHIVE" \
+                            "$SSH_USER@$EC2_HOST:/tmp/securepulse-image.tar.gz"
 
-                        sleep 5
+                        echo "Deploying application on EC2..."
 
-                        STATUS=$(docker inspect -f '{{.State.Status}}' securepulse-app 2>/dev/null || echo "not_found")
-                        echo "Container status: $STATUS"
+                        printf '%s\\n' "$JENKINS_USER" "$JENKINS_API_TOKEN" |
+                        ssh -i "$SSH_KEY" \
+                            -o StrictHostKeyChecking=accept-new \
+                            "$SSH_USER@$EC2_HOST" '
+                                set -eu
 
-                        if [ "$STATUS" != "running" ]; then
-                            echo "ERROR: securepulse-app is not running."
-                            docker logs securepulse-app || true
-                            exit 1
-                        fi
+                                IFS= read -r JENKINS_USER
+                                IFS= read -r JENKINS_API_TOKEN
 
-                        echo "Deployment verified on host port 5001."
+                                echo "Loading Docker image..."
+                                sudo docker load -i /tmp/securepulse-image.tar.gz
+
+                                echo "Removing previous application container if present..."
+                                if sudo docker ps -a --format "{{.Names}}" |
+                                    grep -qx "securepulse-app"; then
+                                    sudo docker rm -f securepulse-app
+                                fi
+
+                                echo "Starting updated SecurePulse container..."
+
+                                sudo docker run -d \
+                                    --name securepulse-app \
+                                    --restart unless-stopped \
+                                    -p 80:5000 \
+                                    -e "JENKINS_USER=$JENKINS_USER" \
+                                    -e "JENKINS_API_TOKEN=$JENKINS_API_TOKEN" \
+                                    securepulse:latest
+
+                                echo "Waiting for application startup..."
+                                sleep 5
+
+                                STATUS=$(sudo docker inspect \
+                                    -f "{{.State.Status}}" securepulse-app)
+
+                                echo "Container status: $STATUS"
+
+                                if [ "$STATUS" != "running" ]; then
+                                    echo "ERROR: SecurePulse container failed."
+                                    sudo docker logs securepulse-app || true
+                                    exit 1
+                                fi
+
+                                echo "Checking application HTTP response..."
+                                curl -fsS http://localhost/ >/dev/null
+
+                                sudo rm -f /tmp/securepulse-image.tar.gz
+
+                                echo "AWS deployment verified successfully."
+                                sudo docker ps --filter name=securepulse-app
+                            '
                     '''
                 }
             }
+
             post {
                 success {
-                    echo "Deploy stage PASSED - securepulse-app is live on port 5001."
+                    echo "Deploy stage PASSED - SecurePulse is live on AWS."
+                    echo "Application URL: http://${EC2_HOST}"
                 }
+
                 failure {
-                    echo "Deploy stage FAILED - review the logs above."
+                    echo "Deploy stage FAILED - review the deployment logs."
                 }
             }
         }
@@ -277,17 +291,22 @@ pipeline {
     post {
         always {
             echo "==> Cleaning up virtual environment..."
+
             sh "rm -rf ${VENV_DIR}"
+
             echo "Pipeline finished. Status: ${currentBuild.currentResult}"
         }
+
         success {
-            echo "BUILD SUCCEEDED - SecurePulse tests, image build, security scans, and deployment completed."
+            echo "BUILD SUCCEEDED - tests, image build, security scans, and AWS deployment completed."
         }
+
         failure {
             echo "BUILD FAILED - review the stage logs above."
         }
+
         unstable {
-            echo "BUILD UNSTABLE - some tests may have been skipped or flaky."
+            echo "BUILD UNSTABLE - review test results."
         }
     }
 }
