@@ -1,22 +1,22 @@
 
 /*
- * SecurePulse – Declarative Jenkins Pipeline
+ * SecurePulse - Declarative Jenkins Pipeline
  *
  * Pipeline stages:
- *   1. Checkout
- *   2. Install Dependencies
- *   3. Run Tests
- *   4. Build Docker Image
- *   5. Security Scan (pip-audit + Trivy)
- *   6. Deploy to AWS EC2 using SSH
+ * 1. Checkout
+ * 2. Install Dependencies
+ * 3. Run Tests
+ * 4. Build Docker Image
+ * 5. Security Scan (pip-audit + Trivy)
+ * 6. Deploy to AWS EC2 using SSH
  *
- * Credentials required in Jenkins:
- *   aws-ec2-ssh          - SSH Username with private key
- *   securepulse-jenkins-api - Username with password/API token
+ * Jenkins credentials required:
+ * aws-ec2-ssh            - SSH Username with private key
+ * securepulse-jenkins-api - Username with password/API token
  *
- * Security Scan blocking policy:
- *   pip-audit : Any known dependency vulnerability fails the pipeline.
- *   Trivy     : HIGH or CRITICAL image vulnerabilities fail the pipeline.
+ * Security policy:
+ * pip-audit: Vulnerabilities fail the pipeline.
+ * Trivy: HIGH and CRITICAL vulnerabilities fail the pipeline.
  */
 
 pipeline {
@@ -42,30 +42,36 @@ pipeline {
         stage("Checkout") {
             steps {
                 echo "==> Checking out source code..."
+
                 checkout scm
+
                 echo "Workspace: ${env.WORKSPACE}"
+
                 sh "ls -la"
             }
         }
 
         stage("Install Dependencies") {
             steps {
-                echo "==> Creating virtual environment and installing dependencies..."
+                echo "==> Installing Python dependencies..."
 
-                sh """
+                sh '''
                     set -eu
 
-                    PYTHON=\\$(command -v python3 || command -v python)
-                    echo "Using Python: \\$PYTHON"
-                    \\$PYTHON --version
+                    PYTHON=$(command -v python3 || command -v python)
 
-                    \\$PYTHON -m venv ${VENV_DIR}
-                    ${VENV_DIR}/bin/pip install --upgrade pip --quiet
-                    ${VENV_DIR}/bin/pip install -r requirements.txt --quiet
+                    echo "Using Python: $PYTHON"
+                    "$PYTHON" --version
+
+                    "$PYTHON" -m venv "$VENV_DIR"
+
+                    "$VENV_DIR/bin/pip" install --upgrade pip --quiet
+
+                    "$VENV_DIR/bin/pip" install -r requirements.txt --quiet
 
                     echo "Installed packages:"
-                    ${VENV_DIR}/bin/pip list
-                """
+                    "$VENV_DIR/bin/pip" list
+                '''
             }
         }
 
@@ -73,18 +79,19 @@ pipeline {
             steps {
                 echo "==> Running pytest suite..."
 
-                sh """
+                sh '''
                     set -eu
 
-                    ${VENV_DIR}/bin/python -m pytest tests/ -v \\
-                        --tb=short \\
+                    "$VENV_DIR/bin/python" -m pytest tests/ -v \
+                        --tb=short \
                         --junit-xml=test-results.xml
-                """
+                '''
             }
 
             post {
                 always {
-                    junit allowEmptyResults: true, testResults: "test-results.xml"
+                    junit allowEmptyResults: true,
+                          testResults: "test-results.xml"
                 }
 
                 failure {
@@ -99,25 +106,26 @@ pipeline {
 
         stage("Build Docker Image") {
             steps {
-                echo "==> Building Docker image ${IMAGE_NAME}:${IMAGE_TAG}..."
+                echo "==> Building Docker image..."
 
-                sh """
+                sh '''
                     set -eu
 
-                    docker build \\
-                        --no-cache \\
-                        -t ${IMAGE_NAME}:${IMAGE_TAG} \\
-                        -t ${IMAGE_NAME}:build-${env.BUILD_NUMBER} \\
+                    docker build \
+                        --no-cache \
+                        -t "$IMAGE_NAME:$IMAGE_TAG" \
+                        -t "$IMAGE_NAME:build-$BUILD_NUMBER" \
                         .
 
                     echo "Docker image built successfully:"
-                    docker images ${IMAGE_NAME}
-                """
+
+                    docker images "$IMAGE_NAME"
+                '''
             }
 
             post {
                 success {
-                    echo "Image ${IMAGE_NAME}:${IMAGE_TAG} is ready for scanning."
+                    echo "Docker image is ready for scanning."
                 }
             }
         }
@@ -126,54 +134,61 @@ pipeline {
             steps {
                 echo "==> Running security scans..."
 
-                sh """
+                sh '''
                     set -eu
 
-                    # pip-audit: scan Python dependencies.
-                    echo "--- [1/2] pip-audit: scanning requirements.txt ---"
+                    # Scan Python dependencies
+                    echo "--- [1/2] pip-audit scan ---"
 
-                    ${VENV_DIR}/bin/pip install pip-audit --quiet
-                    ${VENV_DIR}/bin/pip-audit -r requirements.txt --progress-spinner off
+                    "$VENV_DIR/bin/pip" install pip-audit --quiet
+
+                    "$VENV_DIR/bin/pip-audit" \
+                        -r requirements.txt \
+                        --progress-spinner off
 
                     echo "pip-audit: PASSED"
 
-                    # Trivy: scan the Docker image.
-                    echo "--- [2/2] Trivy: scanning ${IMAGE_NAME}:${IMAGE_TAG} ---"
+                    # Prepare Docker image for Trivy
+                    echo "--- [2/2] Trivy image scan ---"
 
                     docker pull aquasec/trivy:0.76.0
+
                     docker volume create securepulse-trivy-cache >/dev/null
 
-                    ARCHIVE_PATH="\${WORKSPACE}/.securepulse-image.tar"
-                    trap 'rm -f "\$ARCHIVE_PATH"' EXIT
+                    ARCHIVE_PATH="$WORKSPACE/.securepulse-image.tar"
 
-                    docker save --output "\$ARCHIVE_PATH" ${IMAGE_NAME}:${IMAGE_TAG}
+                    trap 'rm -f "$ARCHIVE_PATH"' EXIT
+
+                    docker save \
+                        --output "$ARCHIVE_PATH" \
+                        "$IMAGE_NAME:$IMAGE_TAG"
 
                     echo "Trivy informational scan (all severities):"
 
-                    docker run --rm \\
-                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \\
-                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
-                        aquasec/trivy:0.76.0 image \\
-                        --cache-dir /root/.cache/trivy \\
-                        --input /workspace/.securepulse-image.tar \\
-                        --no-progress \\
-                        --exit-code 0 \\
+                    docker run --rm \
+                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \
+                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \
+                        aquasec/trivy:0.76.0 image \
+                        --cache-dir /root/.cache/trivy \
+                        --input /workspace/.securepulse-image.tar \
+                        --no-progress \
+                        --exit-code 0 \
                         --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
                     echo "Trivy blocking scan (HIGH + CRITICAL):"
 
-                    docker run --rm \\
-                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \\
-                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \\
-                        aquasec/trivy:0.76.0 image \\
-                        --cache-dir /root/.cache/trivy \\
-                        --input /workspace/.securepulse-image.tar \\
-                        --no-progress \\
-                        --exit-code 1 \\
+                    docker run --rm \
+                        --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \
+                        --mount type=volume,src=securepulse-trivy-cache,dst=/root/.cache/trivy \
+                        aquasec/trivy:0.76.0 image \
+                        --cache-dir /root/.cache/trivy \
+                        --input /workspace/.securepulse-image.tar \
+                        --no-progress \
+                        --exit-code 1 \
                         --severity HIGH,CRITICAL
 
                     echo "Trivy: PASSED"
-                """
+                '''
             }
 
             post {
@@ -197,19 +212,23 @@ pipeline {
                         keyFileVariable: 'SSH_KEY',
                         usernameVariable: 'SSH_USER'
                     ),
+
                     usernamePassword(
                         credentialsId: 'securepulse-jenkins-api',
                         usernameVariable: 'JENKINS_USER',
                         passwordVariable: 'JENKINS_API_TOKEN'
                     )
                 ]) {
+
                     sh '''
                         set -eu
 
                         ARCHIVE="securepulse-image.tar.gz"
+
                         trap 'rm -f "$ARCHIVE"' EXIT
 
                         echo "Saving Docker image..."
+
                         docker save "$IMAGE_NAME:$IMAGE_TAG" | gzip > "$ARCHIVE"
 
                         echo "Transferring image to AWS EC2..."
@@ -221,7 +240,7 @@ pipeline {
 
                         echo "Deploying application on EC2..."
 
-                        printf '%s\\n' "$JENKINS_USER" "$JENKINS_API_TOKEN" |
+                        printf '%s\n' "$JENKINS_USER" "$JENKINS_API_TOKEN" |
                         ssh -i "$SSH_KEY" \
                             -o StrictHostKeyChecking=accept-new \
                             "$SSH_USER@$EC2_HOST" '
@@ -231,11 +250,15 @@ pipeline {
                                 IFS= read -r JENKINS_API_TOKEN
 
                                 echo "Loading Docker image..."
-                                sudo docker load -i /tmp/securepulse-image.tar.gz
 
-                                echo "Removing previous application container if present..."
+                                sudo docker load \
+                                    -i /tmp/securepulse-image.tar.gz
+
+                                echo "Removing previous container if present..."
+
                                 if sudo docker ps -a --format "{{.Names}}" |
                                     grep -qx "securepulse-app"; then
+
                                     sudo docker rm -f securepulse-app
                                 fi
 
@@ -250,6 +273,7 @@ pipeline {
                                     securepulse:latest
 
                                 echo "Waiting for application startup..."
+
                                 sleep 5
 
                                 STATUS=$(sudo docker inspect \
@@ -259,50 +283,57 @@ pipeline {
 
                                 if [ "$STATUS" != "running" ]; then
                                     echo "ERROR: SecurePulse container failed."
+
                                     sudo docker logs securepulse-app || true
+
                                     exit 1
                                 fi
 
                                 echo "Checking application HTTP response..."
+
                                 curl -fsS http://localhost/ >/dev/null
 
                                 sudo rm -f /tmp/securepulse-image.tar.gz
 
                                 echo "AWS deployment verified successfully."
+
                                 sudo docker ps --filter name=securepulse-app
                             '
                     '''
+
                 }
             }
 
             post {
                 success {
                     echo "Deploy stage PASSED - SecurePulse is live on AWS."
+
                     echo "Application URL: http://${EC2_HOST}"
                 }
 
                 failure {
-                    echo "Deploy stage FAILED - review the deployment logs."
+                    echo "Deploy stage FAILED - review deployment logs."
                 }
             }
         }
     }
 
     post {
+
         always {
             echo "==> Cleaning up virtual environment..."
 
-            sh "rm -rf ${VENV_DIR}"
+            sh 'rm -rf "$VENV_DIR"'
 
             echo "Pipeline finished. Status: ${currentBuild.currentResult}"
         }
 
         success {
-            echo "BUILD SUCCEEDED - tests, image build, security scans, and AWS deployment completed."
+            echo "BUILD SUCCEEDED - tests, build, security scans, and AWS deployment completed."
         }
 
         failure {
-            echo "BUILD FAILED - review the stage logs above."
+            echo "BUILD FAILED - review the stage logs."
         }
 
         unstable {
