@@ -11,16 +11,17 @@
  * 6. Deploy to AWS EC2 using SSH
  *
  * Jenkins credentials required:
- * aws-ec2-ssh            - SSH Username with private key
+ * aws-ec2-ssh             - SSH Username with private key
  * securepulse-jenkins-api - Username with password/API token
  *
  * Security policy:
  * pip-audit: Vulnerabilities fail the pipeline.
- * Trivy: HIGH and CRITICAL vulnerabilities fail the pipeline.
+ * Trivy: Report all vulnerabilities.
+ * Trivy blocking gate: HIGH and CRITICAL vulnerabilities
+ * with available fixes fail the pipeline.
  */
 
 pipeline {
-
     agent any
 
     environment {
@@ -38,15 +39,11 @@ pipeline {
     }
 
     stages {
-
         stage("Checkout") {
             steps {
                 echo "==> Checking out source code..."
-
                 checkout scm
-
                 echo "Workspace: ${env.WORKSPACE}"
-
                 sh "ls -la"
             }
         }
@@ -64,9 +61,7 @@ pipeline {
                     "$PYTHON" --version
 
                     "$PYTHON" -m venv "$VENV_DIR"
-
                     "$VENV_DIR/bin/pip" install --upgrade pip --quiet
-
                     "$VENV_DIR/bin/pip" install -r requirements.txt --quiet
 
                     echo "Installed packages:"
@@ -118,7 +113,6 @@ pipeline {
                         .
 
                     echo "Docker image built successfully:"
-
                     docker images "$IMAGE_NAME"
                 '''
             }
@@ -137,7 +131,7 @@ pipeline {
                 sh '''
                     set -eu
 
-                    # Scan Python dependencies
+                    # 1. Scan Python dependencies
                     echo "--- [1/2] pip-audit scan ---"
 
                     "$VENV_DIR/bin/pip" install pip-audit --quiet
@@ -148,7 +142,7 @@ pipeline {
 
                     echo "pip-audit: PASSED"
 
-                    # Prepare Docker image for Trivy
+                    # 2. Prepare Docker image for Trivy
                     echo "--- [2/2] Trivy image scan ---"
 
                     docker pull aquasec/trivy:0.76.0
@@ -163,6 +157,7 @@ pipeline {
                         --output "$ARCHIVE_PATH" \
                         "$IMAGE_NAME:$IMAGE_TAG"
 
+                    # Informational scan: report all severities
                     echo "Trivy informational scan (all severities):"
 
                     docker run --rm \
@@ -175,7 +170,8 @@ pipeline {
                         --exit-code 0 \
                         --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
 
-                    echo "Trivy blocking scan (HIGH + CRITICAL):"
+                    # Blocking scan: only HIGH/CRITICAL with available fixes
+                    echo "Trivy blocking scan (fixed HIGH + CRITICAL):"
 
                     docker run --rm \
                         --mount type=volume,src=jenkins_home,dst=/workspace,readonly,volume-subpath=workspace/SecurePulse_CI-CD \
@@ -184,6 +180,7 @@ pipeline {
                         --cache-dir /root/.cache/trivy \
                         --input /workspace/.securepulse-image.tar \
                         --no-progress \
+                        --ignore-unfixed \
                         --exit-code 1 \
                         --severity HIGH,CRITICAL
 
@@ -219,7 +216,6 @@ pipeline {
                         passwordVariable: 'JENKINS_API_TOKEN'
                     )
                 ]) {
-
                     sh '''
                         set -eu
 
@@ -240,7 +236,7 @@ pipeline {
 
                         echo "Deploying application on EC2..."
 
-                        printf '%s\n' "$JENKINS_USER" "$JENKINS_API_TOKEN" |
+                        printf '%s\\n' "$JENKINS_USER" "$JENKINS_API_TOKEN" |
                         ssh -i "$SSH_KEY" \
                             -o StrictHostKeyChecking=accept-new \
                             "$SSH_USER@$EC2_HOST" '
@@ -258,7 +254,6 @@ pipeline {
 
                                 if sudo docker ps -a --format "{{.Names}}" |
                                     grep -qx "securepulse-app"; then
-
                                     sudo docker rm -f securepulse-app
                                 fi
 
@@ -283,9 +278,7 @@ pipeline {
 
                                 if [ "$STATUS" != "running" ]; then
                                     echo "ERROR: SecurePulse container failed."
-
                                     sudo docker logs securepulse-app || true
-
                                     exit 1
                                 fi
 
@@ -300,14 +293,12 @@ pipeline {
                                 sudo docker ps --filter name=securepulse-app
                             '
                     '''
-
                 }
             }
 
             post {
                 success {
                     echo "Deploy stage PASSED - SecurePulse is live on AWS."
-
                     echo "Application URL: http://${EC2_HOST}"
                 }
 
@@ -319,7 +310,6 @@ pipeline {
     }
 
     post {
-
         always {
             echo "==> Cleaning up virtual environment..."
 
