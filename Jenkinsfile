@@ -110,7 +110,7 @@ pipeline {
                                         -p 80:5000 \
                                         -e JENKINS_URL="https://relight-rental-undead.ngrok-free.dev" \
                                         -e JENKINS_USER="$JENKINS_API_USER" \
-                                        -e JENKINS_TOKEN="$JENKINS_API_TOKEN" \
+                                        -e JENKINS_API_TOKEN="$JENKINS_API_TOKEN" \
                                         securepulse:latest
 
                                     sleep 10

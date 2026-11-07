@@ -31,7 +31,10 @@ def get_jenkins_status():
         "?tree=number,result,timestamp,url,building"
     )
 
-    headers = {"Accept": "application/json"}
+    headers = {
+    "Accept": "application/json",
+    "ngrok-skip-browser-warning": "true"
+    }
     username = os.environ.get("JENKINS_USER")
     token = os.environ.get("JENKINS_API_TOKEN")
 
