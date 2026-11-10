@@ -7,11 +7,18 @@ Entry point for the Flask application.
 import base64
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from flask import Flask, render_template, jsonify
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+JENKINS_JOB = os.environ.get("JENKINS_JOB", "SecurePulse_CI-CD")
+AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-2")
+EC2_INSTANCE_ID = os.environ.get(
+    "EC2_INSTANCE_ID", "i-06c4877c69007d24c"
+)
 from data.mock_data import get_dashboard_data
 
 app = Flask(__name__)
@@ -21,7 +28,7 @@ app = Flask(__name__)
 JENKINS_URL = os.environ.get(
     "JENKINS_URL", "http://host.docker.internal:8081"
 ).rstrip("/")
-JENKINS_JOB = os.environ.get("JENKINS_JOB", "SecurePulse_CI-CD")
+
 
 
 def get_jenkins_status():
@@ -109,6 +116,81 @@ def get_jenkins_status():
     }
 
 
+def get_cloudwatch_metrics():
+    """Retrieve basic EC2 metrics from Amazon CloudWatch."""
+    end_time = datetime.now().astimezone()
+    start_time = end_time - timedelta(hours=3)
+
+    metrics_config = {
+        "CPUUtilization": "Average",
+        "NetworkIn": "Sum",
+        "NetworkOut": "Sum"
+    }
+
+    results = {}
+
+    try:
+        cloudwatch = boto3.client(
+        "cloudwatch",
+        region_name=AWS_REGION
+        )
+        for metric_name, statistic in metrics_config.items():
+            response = cloudwatch.get_metric_statistics(
+                Namespace="AWS/EC2",
+                MetricName=metric_name,
+                Dimensions=[
+                    {
+                        "Name": "InstanceId",
+                        "Value": EC2_INSTANCE_ID
+                    }
+                ],
+                StartTime=start_time,
+                EndTime=end_time,
+                Period=300,
+                Statistics=[statistic]
+            )
+
+            datapoints = response.get("Datapoints", [])
+
+            if datapoints:
+                latest = max(
+                    datapoints,
+                    key=lambda point: point["Timestamp"]
+                )
+
+                results[metric_name] = {
+                    "value": round(latest[statistic], 2),
+                    "unit": latest["Unit"],
+                    "timestamp": latest["Timestamp"].isoformat()
+                }
+            else:
+                results[metric_name] = None
+
+        available = any(value is not None for value in results.values())
+
+        return {
+            "available": available,
+            "instance_id": EC2_INSTANCE_ID,
+            "region": AWS_REGION,
+            "metrics": results,
+            "message": (
+                "CloudWatch metrics retrieved successfully."
+                if available
+                else "No recent metrics found. Start EC2 and wait for metrics to be published."
+            )
+        }
+
+    except (BotoCoreError, ClientError) as exc:
+        app.logger.error("CloudWatch request failed: %s", exc)
+
+        return {
+            "available": False,
+            "instance_id": EC2_INSTANCE_ID,
+            "region": AWS_REGION,
+            "metrics": {},
+            "message": "Unable to retrieve CloudWatch metrics. Check IAM permissions and AWS configuration."
+        }
+
 @app.route("/")
 def index():
     """Render the main dashboard page."""
@@ -125,6 +207,10 @@ def dashboard_data():
 def jenkins_status():
     """Return the latest Jenkins build status."""
     return jsonify(get_jenkins_status())
+@app.route("/api/cloudwatch-metrics")
+def cloudwatch_metrics():
+    """Return real EC2 metrics from Amazon CloudWatch."""
+    return jsonify(get_cloudwatch_metrics())
 
 
 if __name__ == "__main__":

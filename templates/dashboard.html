@@ -137,7 +137,51 @@
         </div>
       </div>
     </div>
+    <!-- AWS CloudWatch Infrastructure Monitoring -->
+    <h2 class="section-title">AWS Infrastructure Monitoring</h2>
+    <div class="grid">
+      <div class="card" id="card-cpu">
+        <div class="card-header">
+          <span class="card-icon">&#9881;</span>
+          <span class="card-title">EC2 CPU Utilization</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-value" id="cloudwatch-cpu">--</p>
+          <p class="metric-sub">Average CPU usage</p>
+        </div>
+      </div>
 
+      <div class="card" id="card-network-in">
+        <div class="card-header">
+          <span class="card-icon">&#8595;</span>
+          <span class="card-title">Network In</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-value" id="cloudwatch-network-in">--</p>
+          <p class="metric-sub">Incoming traffic</p>
+        </div>
+      </div>
+
+      <div class="card" id="card-network-out">
+        <div class="card-header">
+          <span class="card-icon">&#8593;</span>
+          <span class="card-title">Network Out</span>
+        </div>
+        <div class="card-body">
+          <p class="metric-value" id="cloudwatch-network-out">--</p>
+          <p class="metric-sub">Outgoing traffic</p>
+        </div>
+      </div>
+
+      <div class="card card-wide">
+        <div class="card-body">
+          <p class="metric-sub" id="cloudwatch-status">
+            Waiting for CloudWatch data...
+          </p>
+          <p class="metric-sub" id="cloudwatch-updated"></p>
+        </div>
+      </div>
+    </div>
     <!-- Security & Infrastructure -->
     <h2 class="section-title">Security &amp; Infrastructure</h2>
     <div class="grid">

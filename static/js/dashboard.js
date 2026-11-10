@@ -203,10 +203,72 @@ async function loadJenkinsStatus() {
   }
 }
 
+/**
+ * Load live EC2 metrics from AWS CloudWatch.
+ */
+async function loadCloudWatchMetrics() {
+  try {
+    const response = await fetch("/api/cloudwatch-metrics", {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const metrics = data.metrics || {};
+
+    const cpu = metrics.CPUUtilization;
+    const networkIn = metrics.NetworkIn;
+    const networkOut = metrics.NetworkOut;
+
+    setText(
+      "cloudwatch-cpu",
+      cpu ? `${cpu.value.toFixed(2)}%` : "--"
+    );
+
+    setText(
+      "cloudwatch-network-in",
+      networkIn
+        ? `${(networkIn.value / (1024 * 1024)).toFixed(2)} MB`
+        : "--"
+    );
+
+    setText(
+      "cloudwatch-network-out",
+      networkOut
+        ? `${(networkOut.value / (1024 * 1024)).toFixed(2)} MB`
+        : "--"
+    );
+
+    setText("cloudwatch-status", data.message || "CloudWatch status unavailable.");
+
+    const timestamps = [
+      cpu?.timestamp,
+      networkIn?.timestamp,
+      networkOut?.timestamp
+    ].filter(Boolean).sort();
+
+    setText(
+      "cloudwatch-updated",
+      timestamps.length
+        ? "Latest metric: " + new Date(timestamps[timestamps.length - 1]).toLocaleString()
+        : "No metric timestamp available"
+    );
+
+  } catch (error) {
+    console.error("Failed to load CloudWatch metrics:", error);
+    setText("cloudwatch-status", "Unable to retrieve CloudWatch metrics.");
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   loadDashboard();
   loadJenkinsStatus();
+  loadCloudWatchMetrics();
 
   setInterval(loadDashboard, 30_000);
   setInterval(loadJenkinsStatus, 30_000);
+  setInterval(loadCloudWatchMetrics, 300_000);
 });
