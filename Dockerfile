@@ -16,7 +16,7 @@ RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
     && python -m pip install --no-cache-dir --upgrade "urllib3>=2.8.0" "msgpack>=1.2.1" "jaraco.context>=6.1.0"
 
 # Install only the runtime dependency into a separate directory
-RUN python -m pip install --no-cache-dir --prefix=/install "Flask==3.1.3"
+RUN python -m pip install --no-cache-dir --prefix=/install "Flask==3.1.3" "boto3==1.43.127"
 
 
 # ── Stage 2: Production image ─────────────────────────────────────
