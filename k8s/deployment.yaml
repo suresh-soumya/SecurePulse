@@ -1,0 +1,45 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: securepulse
+  labels:
+    app: securepulse
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: securepulse
+
+  template:
+    metadata:
+      labels:
+        app: securepulse
+
+    spec:
+      containers:
+        - name: securepulse
+          image: securepulse:latest
+          imagePullPolicy: Never
+
+          ports:
+            - containerPort: 5000
+              protocol: TCP
+
+          env:
+            - name: JENKINS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jenkins-credentials
+                  key: JENKINS_API_TOKEN
+
+            - name: JENKINS_USER
+              valueFrom:
+                secretKeyRef:
+                  name: jenkins-credentials
+                  key: JENKINS_USER
+
+            - name: JENKINS_URL
+              value: "http://host.docker.internal:8081"
