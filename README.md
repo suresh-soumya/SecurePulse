@@ -2,39 +2,44 @@
 
 **Cloud-Based DevSecOps and Product Intelligence Platform**
 
-A college project built with Python (Flask) and vanilla HTML/CSS/JS.  
-Stage 3 – CI/CD with Jenkins.
+A college project built with Python (Flask), vanilla HTML/CSS/JavaScript, Docker, Jenkins, and Kubernetes.
+
+SecurePulse provides a dashboard for monitoring application health, product metrics, DevOps performance, security vulnerabilities, and infrastructure status.
 
 ---
 
 ## Project Structure
 
-```
+```text
 SecurePulse/
-├── app.py                  # Flask entry point
-├── requirements.txt        # Python dependencies
+├── app.py
+├── requirements.txt
 ├── README.md
-├── Dockerfile              # Container image definition  [Stage 2]
-├── .dockerignore           # Files excluded from Docker build context  [Stage 2]
-├── .gitignore              # Files excluded from Git  [Stage 2]
-├── Jenkinsfile             # Declarative CI/CD pipeline  [Stage 3]
+├── Dockerfile
+├── .dockerignore
+├── .gitignore
+├── Jenkinsfile
+│
+├── k8s/
+│   ├── deployment.yaml       # Kubernetes Deployment
+│   └── service.yaml          # Kubernetes NodePort Service
 │
 ├── data/
 │   ├── __init__.py
-│   └── mock_data.py        # Sample metrics (replace with real data later)
+│   └── mock_data.py          # Sample metrics
 │
 ├── templates/
-│   └── dashboard.html      # Main dashboard page (Jinja2 template)
+│   └── dashboard.html        # Main dashboard page
 │
 ├── static/
 │   ├── css/
-│   │   └── style.css       # Dark-theme dashboard styles
+│   │   └── style.css         # Dashboard styling
 │   └── js/
-│       └── dashboard.js    # Fetches /api/dashboard and renders cards
+│       └── dashboard.js     # Dashboard data rendering
 │
 └── tests/
     ├── __init__.py
-    └── test_app.py         # Pytest test suite
+    └── test_app.py           # Pytest test suite
 ```
 
 ---
@@ -49,22 +54,27 @@ SecurePulse/
 
 ---
 
-## Quick Start
+## Quick Start – Local Development
 
-### 1. Clone / open the project
+### 1. Clone or open the project
 
 ```bash
+git clone YOUR_REPOSITORY_URL
 cd SecurePulse
 ```
 
 ### 2. Create and activate a virtual environment
 
-```bash
-# Windows
+**Windows:**
+
+```powershell
 python -m venv venv
 venv\Scripts\activate
+```
 
-# macOS / Linux
+**macOS / Linux:**
+
+```bash
 python -m venv venv
 source venv/bin/activate
 ```
@@ -81,9 +91,11 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Open your browser at **http://127.0.0.1:5000**
+Open your browser:
 
-### 5. Run the tests
+http://127.0.0.1:5000
+
+### 5. Run tests
 
 ```bash
 pytest tests/ -v
@@ -91,9 +103,11 @@ pytest tests/ -v
 
 ---
 
-## Docker (Stage 2)
+## Docker – Stage 2
 
-### Build the image
+SecurePulse is containerized using Docker.
+
+### Build the Docker image
 
 ```powershell
 docker build -t securepulse:latest .
@@ -105,25 +119,23 @@ docker build -t securepulse:latest .
 docker run -d --name securepulse -p 5000:5000 securepulse:latest
 ```
 
-Open your browser at **http://localhost:5000**
+Open:
+
+http://localhost:5000
 
 ### View container logs
 
 ```powershell
 docker logs securepulse
+```
 
-# Stream live logs:
+Stream live logs:
+
+```powershell
 docker logs -f securepulse
 ```
 
-### Stop and remove the container
-
-```powershell
-docker stop securepulse
-docker rm securepulse
-```
-
-### Run tests inside the container (one-off, then remove)
+### Run tests inside the container
 
 ```powershell
 docker run --rm securepulse:latest python -m pytest tests/ -v
@@ -131,76 +143,240 @@ docker run --rm securepulse:latest python -m pytest tests/ -v
 
 ---
 
-## Jenkins CI/CD Pipeline (Stage 3)
+## Jenkins CI/CD Pipeline – Stage 3
 
-### How the pipeline works
+SecurePulse uses Jenkins for continuous integration and continuous delivery automation.
 
-The `Jenkinsfile` defines a **Declarative Pipeline** with four sequential stages:
+### Pipeline Workflow
 
+```text
+Checkout
+   |
+   v
+Install Dependencies
+   |
+   v
+Run Tests
+   |
+   v
+Build Docker Image
 ```
-Checkout  →  Install Dependencies  →  Run Tests  →  Build Docker Image
+
+### Pipeline Stages
+
+| Stage | Description |
+|---|---|
+| **Checkout** | Jenkins fetches the latest source code from Git. |
+| **Install Dependencies** | Installs Python dependencies in a dedicated virtual environment. |
+| **Run Tests** | Executes automated tests using pytest and publishes JUnit test results. |
+| **Build Docker Image** | Builds the SecurePulse Docker image after successful tests. |
+
+### Agent Requirements
+
+| Tool | Purpose |
+|---|---|
+| Python 3 | Runs the Flask application and tests |
+| pip | Installs Python dependencies |
+| Docker | Builds the application container |
+| Git | Retrieves project source code |
+
+### Jenkins Job Configuration
+
+1. Open Jenkins.
+2. Select **New Item**.
+3. Create a Pipeline job.
+4. Select **Pipeline script from SCM**.
+5. Choose Git as the SCM.
+6. Enter your repository URL.
+7. Set Script Path to `Jenkinsfile`.
+8. Save and select **Build Now**.
+
+### Jenkins Integration
+
+SecurePulse connects to Jenkins to retrieve pipeline build information.
+
+The following environment variables are configured:
+
+- `JENKINS_URL`
+- `JENKINS_USER`
+- `JENKINS_API_TOKEN`
+
+Sensitive credentials are stored in a Kubernetes Secret named `jenkins-credentials`, rather than directly in the deployment manifest.
+
+---
+
+## Kubernetes Deployment – Stage 7
+
+SecurePulse is deployed locally using Kubernetes through Minikube.
+
+### Kubernetes Architecture
+
+| Component | Configuration |
+|---|---|
+| Kubernetes Platform | Minikube |
+| Container Image | `securepulse:latest` |
+| Deployment | `securepulse` |
+| Replicas | 1 |
+| Container Port | 5000 |
+| Service Type | NodePort |
+| NodePort | 30843 |
+| Kubernetes Secret | `jenkins-credentials` |
+
+### Kubernetes Configuration Files
+
+The `k8s/` directory contains:
+
+```text
+k8s/
+├── deployment.yaml
+└── service.yaml
 ```
 
-| Stage | What happens |
-|---|---|
-| **Checkout** | Jenkins fetches the latest source code from your SCM (Git). |
-| **Install Dependencies** | A fresh Python virtual environment (`.jenkins-venv`) is created on the agent. `pip` installs `Flask` and `pytest` from `requirements.txt`. The local `venv/` folder is never used or copied. |
-| **Run Tests** | Runs `python -m pytest tests/ -v --junit-xml=test-results.xml`. Results are published in the Jenkins UI via the JUnit plugin. The build is marked **FAILED** if any test fails and the Docker build stage is skipped. |
-| **Build Docker Image** | **Only runs if all tests pass.** Builds `securepulse:latest` and tags it with the build number (e.g. `securepulse:build-42`) for traceability. No image is pushed to any registry. |
+**deployment.yaml**
 
-### Agent requirements
+Defines the SecurePulse Deployment, including:
 
-The Jenkins agent (node) must have the following installed:
+- Application container configuration.
+- Docker image and image pull policy.
+- Container port.
+- Jenkins environment variables.
+- Kubernetes Secret references.
 
-| Tool | Notes |
-|---|---|
-| **Python 3** | `python3` or `python` must be on `PATH`. Any 3.x version works. |
-| **pip** | Bundled with Python 3.4+; used inside the per-build venv only. |
-| **Docker** | Daemon must be running; the `jenkins` OS user must belong to the `docker` group: `sudo usermod -aG docker jenkins && sudo systemctl restart jenkins` |
+**service.yaml**
 
-### Setting up the Jenkins job
+Defines the NodePort Service that exposes SecurePulse on port `30843`.
 
-1. **Install plugins** (Manage Jenkins → Plugin Manager):
-   - *Pipeline* (usually pre-installed)
-   - *JUnit* (for test result graphs)
-   - *Git* (for SCM checkout)
+### Deployment Steps
 
-2. **Create a new job:**
-   - New Item → **Pipeline** (or **Multibranch Pipeline** for branch-per-PR workflows)
-   - Pipeline → Definition: **Pipeline script from SCM**
-   - SCM: **Git** → Repository URL: your repo URL
-   - Script Path: `Jenkinsfile`
-   - Save → **Build Now**
+#### 1. Start Minikube
 
-3. **View results:**
-   - Stage view shows each stage's pass/fail in colour.
-   - *Test Result Trend* graph appears after the first run.
-   - Console Output contains the full `pytest -v` log.
+```powershell
+minikube start
+```
+
+#### 2. Load the Docker image into Minikube
+
+```powershell
+minikube image load securepulse:latest
+```
+
+#### 3. Apply the Kubernetes Deployment
+
+```powershell
+kubectl apply -f k8s/deployment.yaml
+```
+
+#### 4. Apply the Kubernetes Service
+
+```powershell
+kubectl apply -f k8s/service.yaml
+```
+
+#### 5. Verify Kubernetes resources
+
+Check Deployment:
+
+```powershell
+kubectl get deployments
+```
+
+Check Pods:
+
+```powershell
+kubectl get pods
+```
+
+Check Services:
+
+```powershell
+kubectl get services
+```
+
+#### 6. Verify Deployment rollout
+
+```powershell
+kubectl rollout status deployment/securepulse
+```
+
+#### 7. Access SecurePulse
+
+```powershell
+minikube service securepulse
+```
+
+Minikube opens the application using the Service URL.
+
+### Kubernetes Secret Management
+
+Jenkins credentials are stored securely in Kubernetes:
+
+```text
+Secret Name: jenkins-credentials
+
+Keys:
+- JENKINS_API_TOKEN
+- JENKINS_USER
+```
+
+The Deployment references these Secret keys using `secretKeyRef`.
+
+This avoids hardcoding Jenkins credentials in the Kubernetes Deployment YAML file.
+
+### Deployment Verification
+
+The following have been verified in the local Minikube environment:
+
+- SecurePulse Pod running successfully.
+- Kubernetes Deployment available.
+- NodePort Service configured.
+- Jenkins integration operational.
+- Jenkins dashboard retrieving build information.
+- Security gate reporting PASSED.
 
 ---
 
 ## Roadmap
 
-| Stage | Features |
+| Stage | Features | Status |
+|---|---|---|
+| Stage 1 | Flask application and dashboard | Completed |
+| Stage 2 | Git and Docker containerization | Completed |
+| Stage 3 | Jenkins CI/CD pipeline | Completed |
+| Stage 4 | User authentication with Flask-Login | Planned |
+| Stage 5 | AWS deployment (EC2 / ECS) | Planned |
+| Stage 6 | Monitoring with Prometheus + Grafana | Planned |
+| Stage 7 | Kubernetes orchestration with Minikube | Completed |
+
+---
+
+## Technologies Used
+
+| Category | Technologies |
 |---|---|
-| ✅ **Stage 1** | Local Flask app, mock data, basic dashboard |
-| ✅ **Stage 2** | Git (`.gitignore`) + Docker (`Dockerfile`, `.dockerignore`) |
-| ✅ **Stage 3** | CI/CD with Jenkins (`Jenkinsfile` – declarative pipeline) |
-| 🔜 Stage 4 | User authentication (Flask-Login) |
-| 🔜 Stage 5 | AWS deployment (EC2 / ECS) |
-| 🔜 Stage 6 | Monitoring with Prometheus + Grafana |
-| 🔜 Stage 7 | Kubernetes orchestration |
+| Backend | Python 3.11+, Flask 3 |
+| Frontend | HTML5, CSS3, Vanilla JavaScript |
+| Testing | pytest |
+| Version Control | Git, GitHub |
+| Containerization | Docker |
+| CI/CD | Jenkins |
+| Container Orchestration | Kubernetes |
+| Local Kubernetes Environment | Minikube |
+| Configuration | YAML |
+| Secret Management | Kubernetes Secrets |
 
 ---
 
-## Technologies
+## Future Enhancements
 
-- **Backend** – Python 3.11+, Flask 3
-- **Frontend** – HTML5, CSS3, Vanilla JavaScript (ES2020)
-- **Testing** – pytest
-- **Containerisation** – Docker
-- **CI/CD** – Jenkins (Declarative Pipeline)
+- Implement user authentication and role-based access.
+- Deploy SecurePulse to AWS.
+- Integrate Prometheus and Grafana for monitoring.
+- Implement automated vulnerability scanning.
+- Improve CI/CD automation and deployment workflows.
+- Explore Kubernetes deployment automation.
 
 ---
 
-*SecurePulse – College Project, 2026*
+**SecurePulse – Cloud-Based DevSecOps and Product Intelligence Platform**
+
+*College Project | 2026*
