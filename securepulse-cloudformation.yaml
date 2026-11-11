@@ -1,0 +1,84 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SecurePulse EC2 infrastructure
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-0fcd46a02ed41705f
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-03330c166ff4530cc
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: SecurePulse-Key
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0c4c0d31978150116
+
+  SSHLocation:
+    Type: String
+    Description: Your public IPv4 address followed by /32
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/32$'
+    ConstraintDescription: Enter an IPv4 CIDR such as 203.0.113.10/32
+
+Resources:
+  SecurePulseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SecurePulse web and restricted SSH access
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: SecurePulse-CloudFormation-SG
+
+  SecurePulseInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !GetAtt SecurePulseSecurityGroup.GroupId
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      Tags:
+        - Key: Name
+          Value: SecurePulse-CloudFormation
+
+Outputs:
+  InstanceId:
+    Description: New SecurePulse EC2 instance ID
+    Value: !Ref SecurePulseInstance
+
+  PublicIP:
+    Description: Public IPv4 address
+    Value: !GetAtt SecurePulseInstance.PublicIp
+
+  WebsiteURL:
+    Description: SecurePulse website URL
+    Value: !Sub 'http://${SecurePulseInstance.PublicDnsName}'
