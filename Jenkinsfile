@@ -4,7 +4,7 @@ pipeline {
 
     environment {
         DOCKER_IMAGE = 'securepulse:latest'
-        EC2_HOST = '13.55.36.114'
+        EC2_HOST = '16.179.149.100'
         EC2_USER = 'ubuntu'
         SSH_CREDENTIALS = 'aws-ec2-ssh'
         JENKINS_API_CREDENTIALS = 'securepulse-jenkins-api'
