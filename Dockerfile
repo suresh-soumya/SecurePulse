@@ -1,4 +1,4 @@
-﻿# ================================================================
+# ================================================================
 # SecurePulse – Dockerfile
 # Stage 2: Docker containerisation
 # ================================================================
@@ -23,12 +23,12 @@ RUN python -m pip install --no-cache-dir --ignore-installed --prefix=/install "F
 FROM python:3.11-slim-trixie
 
 # Apply available security updates to Debian base packages
-# Apply available security updates to Debian base packages
 ARG CACHEBUST=20261119
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --only-upgrade zlib1g \
     && rm -rf /var/lib/apt/lists/*
+
 # ── Metadata ──────────────────────────────────────────────────────
 LABEL maintainer="SecurePulse Project"
 LABEL description="SecurePulse – Cloud-Based DevSecOps and Product Intelligence Platform"
